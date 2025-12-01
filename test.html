@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Camera Test</title>
+    <style>
+        body { background: #000; color: #0f0; font-family: monospace; padding: 20px; }
+        video { border: 2px solid #0f0; width: 640px; height: 480px; background: #333; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #0f0; border: none; }
+        #log { margin-top: 20px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h2>1. Camera Connectivity Test</h2>
+    <button onclick="startCamera()">Start Camera</button>
+    <br><br>
+    <video id="video" autoplay playsinline></video>
+    <div id="log">Waiting for user action...</div>
+
+    <script>
+        function log(msg) {
+            const el = document.getElementById('log');
+            el.innerHTML += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
+            console.log(msg);
+        }
+
+        async function startCamera() {
+            log("Requesting camera access...");
+            try {
+                // List devices first
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                log(`Found ${devices.length} devices.`);
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                log(`Video devices found: ${videoDevices.length}`);
+                videoDevices.forEach(d => log(`- ${d.label} (ID: ${d.deviceId})`));
+
+                if (videoDevices.length === 0) {
+                    log("ERROR: No video input devices found!");
+                    return;
+                }
+
+                // Try to get stream
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 } 
+                });
+                
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                log("SUCCESS: Stream obtained. Video should be visible.");
+                
+            } catch (err) {
+                log(`FATAL ERROR: ${err.name}: ${err.message}`);
+                if (err.name === 'NotAllowedError') {
+                    log("HINT: Check browser address bar for blocked camera icon.");
+                } else if (err.name === 'NotFoundError') {
+                    log("HINT: No camera detected.");
+                } else if (err.name === 'NotReadableError') {
+                    log("HINT: Camera might be in use by another app (Zoom, Teams, etc).");
+                }
+            }
+        }
+    </script>
+</body>
+</html>

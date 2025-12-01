@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Magic - 手势魔法</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            min-height: 100vh; 
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%); 
+            font-family: system-ui, -apple-system, sans-serif; 
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        h1 { 
+            font-size: 2.5rem; 
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #6366f1, #ec4899);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        p { color: #888; margin-bottom: 40px; }
+        .cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 30px;
+            width: 280px;
+            text-decoration: none;
+            color: white;
+            transition: 0.3s;
+        }
+        .card:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.2);
+        }
+        .card h2 { font-size: 1.3rem; margin-bottom: 10px; }
+        .card p { font-size: 0.9rem; color: #aaa; margin-bottom: 0; }
+        .card .icon { font-size: 2.5rem; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <h1>✨ Gesture Magic</h1>
+    <p>选择一个体验</p>
+    
+    <div class="cards">
+        <a href="particle_shapes.html" class="card">
+            <div class="icon">🎆</div>
+            <h2>3D 粒子控制器</h2>
+            <p>用手势控制爱心、花朵、土星等粒子形状的缩放与扩散</p>
+        </a>
+        
+        <a href="index_desktop.html" class="card">
+            <div class="icon">🔮</div>
+            <h2>奇异博士魔法阵</h2>
+            <p>双手施展奇异博士风格的魔法阵特效</p>
+        </a>
+    </div>
+</body>
+</html>

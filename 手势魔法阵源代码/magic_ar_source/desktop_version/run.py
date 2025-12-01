@@ -1,0 +1,449 @@
+import http.server
+import socketserver
+import webbrowser
+import os
+import urllib.request
+import ssl
+
+# -------------------------------------------------------
+# 1. 音频匹配
+# -------------------------------------------------------
+def find_audio_file(base_name):
+    folder = "assets"
+    if not os.path.exists(folder): return ""
+    for ext in ['.mp3', '.wav', '.ogg']:
+        filename = f"{base_name}{ext}"
+        if os.path.exists(os.path.join(folder, filename)):
+            return f"assets/{filename}"
+    return ""
+
+audio_loop1 = find_audio_file("loop1")
+audio_loop2 = find_audio_file("loop2")
+audio_charge = find_audio_file("charge")
+audio_boom = find_audio_file("boom")
+
+# -------------------------------------------------------
+# 2. 依赖下载
+# -------------------------------------------------------
+try: ssl._create_default_https_context = ssl._create_unverified_context
+except: pass
+if not os.path.exists("three.min.js"):
+    try: urllib.request.urlretrieve("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", "three.min.js")
+    except: pass
+
+html_content = f"""
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Chaos Magic: Chaotic Blast</title>
+    <style>
+        body {{ margin: 0; overflow: hidden; background: #000; font-family: "SF Pro Display", sans-serif; user-select: none; }}
+        #layer {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 999; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.8s; }}
+        h1 {{ color: #ffaa33; letter-spacing: 8px; margin-bottom: 30px; font-size: 32px; text-shadow: 0 0 30px #ff6600; }}
+        .btn {{ padding: 14px 50px; background: rgba(20,10,0,0.5); border: 1px solid #ffaa33; color: #ffaa33; cursor: pointer; font-size: 14px; letter-spacing: 3px; box-shadow: 0 0 15px rgba(255, 170, 51, 0.15); }}
+        .btn:hover {{ background: #ffaa33; color: #000; box-shadow: 0 0 50px rgba(255, 170, 51, 0.8); }}
+        #status {{ margin-top:20px; color:#642; font-size:10px; }}
+        #hidden-cam {{ position: absolute; opacity: 0; pointer-events: none; }}
+        #video {{ transform: scaleX(-1); }}
+    </style>
+    <script src="three.min.js"></script>
+    <script>if(!window.THREE) document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');</script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+</head>
+<body>
+    <div id="layer">
+        <h1>MYSTIC ARTS</h1>
+        <button class="btn" onclick="startApp()">INITIATE</button>
+        <div id="status">Visuals: Explosive Particles Added</div>
+    </div>
+    <div id="hidden-cam"><video id="video" playsinline></video></div>
+    
+    <audio id="snd-loop1" src="{audio_loop1}" loop></audio>
+    <audio id="snd-loop2" src="{audio_loop2}" loop></audio>
+    <audio id="snd-charge" src="{audio_charge}"></audio>
+    <audio id="snd-boom" src="{audio_boom}"></audio>
+
+    <script>
+        let scene, camera, renderer;
+        let hands, cameraObj;
+        let sparkTex, glowTex;
+        let particles; 
+        let smallCircles = [], megaCircle;        
+        let mergeProgress = 0, ultimateTimer = 0;
+        let fixedUltPos = new THREE.Vector3();
+        let lastHandCenter = new THREE.Vector3();
+
+        const CAMERA_Z = 12;
+        const audio = {{ 
+            loop1: document.getElementById('snd-loop1'),
+            loop2: document.getElementById('snd-loop2'),
+            charge: document.getElementById('snd-charge'),
+            boom: document.getElementById('snd-boom')
+        }};
+
+        async function startApp() {{
+            document.querySelector('.btn').style.display = 'none';
+            document.getElementById('status').innerText = "Syncing...";
+            try {{ 
+                audio.loop1.volume = 0; audio.loop1.play();
+                audio.loop2.volume = 0; audio.loop2.play();
+            }} catch(e) {{}}
+
+            try {{
+                initWorld(); await initMediaPipe();
+                document.getElementById('layer').style.opacity = 0;
+                setTimeout(() => document.getElementById('layer').style.display = 'none', 800);
+                try {{ document.documentElement.requestFullscreen(); }} catch(e){{}}
+            }} catch(e) {{ alert(e); location.reload(); }}
+        }}
+
+        async function initMediaPipe() {{
+            const videoElement = document.getElementById('video');
+            hands = new Hands({{locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${{file}}`}});
+            hands.setOptions({{ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 }});
+            hands.onResults(onHandsResults);
+            cameraObj = new Camera(videoElement, {{ onFrame: async () => {{ await hands.send({{image: videoElement}}); }}, width: 640, height: 480 }});
+            await cameraObj.start();
+        }}
+
+        function onHandsResults(results) {{
+            const handData = [];
+            if (results.multiHandLandmarks) {{
+                results.multiHandLandmarks.forEach((lm) => {{
+                    const vFOV = THREE.Math.degToRad(camera.fov);
+                    const height = 2 * Math.tan(vFOV / 2) * CAMERA_Z;
+                    const width = height * camera.aspect;
+                    const wx = -(lm[9].x - 0.5) * width; 
+                    const wy = -(lm[9].y - 0.5) * height;
+                    
+                    // 轻松手势: dist 0.02 -> 0%, 0.10 -> 100%
+                    const dist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+                    let energy = (dist - 0.02) / 0.08; 
+                    energy = Math.max(0, Math.min(1, energy));
+
+                    handData.push({{ pos: new THREE.Vector3(wx, wy, 0), energy: energy }});
+                }});
+            }}
+
+            let dist = 999;
+            let center = new THREE.Vector3();
+
+            if (handData.length === 2) {{
+                dist = handData[0].pos.distanceTo(handData[1].pos);
+                center.copy(handData[0].pos).add(handData[1].pos).multiplyScalar(0.5);
+                lastHandCenter.copy(center);
+            }} else {{
+                center.copy(lastHandCenter);
+            }}
+
+            const bothHandsCharged = (handData.length === 2) && (handData[0].energy > 0.8) && (handData[1].energy > 0.8);
+
+            const updateVolume = (audioEl, targetVol) => {{
+                if (targetVol <= 0.05) {{
+                    audioEl.volume = 0; 
+                    if (!audioEl.paused) audioEl.pause();
+                }} else {{
+                    if (audioEl.paused) audioEl.play();
+                    audioEl.volume += (targetVol - audioEl.volume) * 0.3; 
+                }}
+            }};
+
+            // --- 状态机 ---
+
+            // 1. 大招释放中
+            if (ultimateTimer > 0) {{
+                ultimateTimer--;
+                megaCircle.update(fixedUltPos, true);
+                smallCircles[0].mesh.visible = false;
+                smallCircles[1].mesh.visible = false;
+                
+                // 粒子系统升级
+                // A. 核心悬浮
+                particles.emitSuspended(fixedUltPos);
+                // B. 螺旋风暴
+                particles.emitSpiral(fixedUltPos, 2.0); 
+                // C. 🔥 随机爆炸 (新增)：持续的噼里啪啦效果
+                if(Math.random() > 0.5) particles.emitChaotic(fixedUltPos, 1.0);
+
+                mergeProgress = 0;
+                audio.charge.pause();
+                updateVolume(audio.loop1, 0);
+                updateVolume(audio.loop2, 0);
+
+            // 2. 融合蓄力
+            }} else if (bothHandsCharged && dist < 9.0) {{
+                mergeProgress = Math.min(1.0, mergeProgress + 0.02);
+                smallCircles.forEach((circle, i) => {{
+                    const target = new THREE.Vector3().lerpVectors(handData[i].pos, center, mergeProgress);
+                    circle.update(target, 0.8 + mergeProgress*0.2, false);
+                    particles.emitTrail(target, 1.5); 
+                }});
+                if(audio.charge.paused) audio.charge.play();
+                audio.charge.volume = Math.min(1, mergeProgress);
+                updateVolume(audio.loop1, 0.2);
+                updateVolume(audio.loop2, 0.2);
+                if (mergeProgress >= 1.0) triggerUltimate(center);
+
+            // 3. 普通双持
+            }} else {{
+                mergeProgress = Math.max(0, mergeProgress - 0.05);
+                megaCircle.mesh.visible = false;
+                if(!audio.charge.paused) {{ audio.charge.pause(); audio.charge.currentTime=0; }}
+
+                if (handData[0]) {{
+                    smallCircles[0].update(handData[0].pos, handData[0].energy);
+                    if(smallCircles[0].mesh.visible) particles.emitTrail(smallCircles[0].mesh.position, 0.6 + handData[0].energy);
+                    updateVolume(audio.loop1, handData[0].energy); 
+                }} else {{
+                    smallCircles[0].update(smallCircles[0].mesh.position, 0);
+                    updateVolume(audio.loop1, 0);
+                }}
+
+                if (handData[1]) {{
+                    smallCircles[1].update(handData[1].pos, handData[1].energy);
+                    if(smallCircles[1].mesh.visible) particles.emitTrail(smallCircles[1].mesh.position, 0.6 + handData[1].energy);
+                    updateVolume(audio.loop2, handData[1].energy);
+                }} else {{
+                    smallCircles[1].update(smallCircles[1].mesh.position, 0);
+                    updateVolume(audio.loop2, 0);
+                }}
+            }}
+        }}
+
+        function triggerUltimate(pos) {{
+            ultimateTimer = 240; 
+            fixedUltPos.copy(pos);
+            megaCircle.mesh.position.copy(fixedUltPos);
+            megaCircle.mesh.visible = true;
+            megaCircle.mesh.rotation.z = Math.random() * Math.PI;
+            createShockwave(fixedUltPos);
+            
+            // 初始大爆炸 (增强版)
+            for(let i=0; i<20; i++) particles.emitBurst(fixedUltPos, 5.0); 
+            for(let i=0; i<30; i++) particles.emitChaotic(fixedUltPos, 8.0); // 🔥 混合混沌粒子
+            
+            audio.boom.currentTime = 0; audio.boom.volume = 1.0; audio.boom.play();
+        }}
+
+        // ---------------- 视觉组件 ----------------
+        class MagicCircle {{
+            constructor(scene, mat, scale) {{
+                this.mesh = new THREE.Group();
+                this.baseScale = scale;
+                this.mesh.scale.set(scale, scale, scale);
+                this.rings = []; this.energy = 0; this.scene = scene;
+                scene.add(this.mesh);
+            }}
+            createRing(r, count, type, mat, speed, delay, rot=0) {{
+                const pos=[], basePos=[];
+                for(let i=0; i<count; i++) {{
+                    const t=i/count, a=t*Math.PI*2;
+                    let x,y;
+                    if(type==='circle') {{ x=Math.cos(a)*r; y=Math.sin(a)*r; }}
+                    else if(type==='square') {{
+                        if(t<0.25){{x=r; y=r*(1-8*t);}} else if(t<0.5){{x=r*(1-8*(t-0.25)); y=-r;}}
+                        else if(t<0.75){{x=-r; y=-r*(1-8*(t-0.5));}} else{{x=-r*(1-8*(t-0.75)); y=r;}}
+                    }} else {{ const R=r, k=r*0.3, h=2.4; x=(R-k)*Math.cos(a)+h*Math.cos(((R-k)/k)*a); y=(R-k)*Math.sin(a)-h*Math.sin(((R-k)/k)*a); }}
+                    x+=(Math.random()-0.5)*0.1; y+=(Math.random()-0.5)*0.1;
+                    pos.push(x,y,0); basePos.push(x,y,0);
+                }}
+                const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                const p = new THREE.Points(geo, mat.clone()); p.rotation.z=rot; p.userData={{speed, delay, count, basePos}};
+                this.mesh.add(p); this.rings.push(p);
+            }}
+            updateLogic(targetPos, targetEnergy, isUltimate) {{
+                this.mesh.position.lerp(targetPos, 0.25);
+                this.energy += (targetEnergy - this.energy) * 0.15;
+                if(this.energy < 0.01 && !isUltimate) {{ this.mesh.visible = false; return; }}
+                this.mesh.visible = true;
+                const pulse = isUltimate ? (1 + Math.sin(Date.now()*0.008)*0.1) : 1;
+                this.mesh.scale.setScalar(this.baseScale * pulse);
+                this.rings.forEach(ring => {{
+                    const d = ring.userData;
+                    const prog = Math.max(0, Math.min(1, (this.energy-d.delay)/(1-d.delay)));
+                    ring.geometry.setDrawRange(0, Math.floor(d.count * (isUltimate ? 1 : prog)));
+                    let spin = d.speed * (1 + this.energy * 5); if(isUltimate) spin *= 3.0; 
+                    ring.rotation.z += spin;
+                    ring.material.opacity = isUltimate ? 1.0 : prog;
+                    if(this.energy > 0.05 || isUltimate) {{
+                        const jitter = isUltimate ? 0.1 : 0.03 * this.energy;
+                        const pos = ring.geometry.attributes.position.array; const base = d.basePos;
+                        for(let i=0; i<d.count; i+=3) {{
+                             const idx = i*3; if(Math.random()>0.7) continue;
+                             pos[idx] = base[idx] + (Math.random()-0.5)*jitter;
+                             pos[idx+1] = base[idx+1] + (Math.random()-0.5)*jitter;
+                        }}
+                        ring.geometry.attributes.position.needsUpdate = true;
+                    }}
+                }});
+            }}
+        }}
+        class SmallCircle extends MagicCircle {{
+            constructor(scene, mat) {{
+                super(scene, mat, 0.75);
+                this.createRing(5.5, 800, 'circle', mat, 0.005, 0.0);
+                this.createRing(4.5, 1200, 'spiro', mat, -0.01, 0.1); 
+                this.createRing(3.8, 600, 'square', mat, 0.02, 0.2);  
+                this.createRing(2.0, 300, 'circle', mat, 0.05, 0.3);  
+            }}
+            update(pos, energy) {{ super.updateLogic(pos, energy, false); }}
+        }}
+        class MegaCircle extends MagicCircle {{
+            constructor(scene, mat) {{
+                super(scene, mat, 1.5);
+                // 空核心
+                this.createRing(7.5, 2000, 'circle', mat, 0.002, 0); 
+                this.createRing(6.0, 1500, 'square', mat, 0.005, 0); 
+                this.createRing(6.0, 1500, 'square', mat, -0.005, 0, Math.PI/4);
+                this.createRing(3.0, 800, 'circle', mat, -0.01, 0); 
+            }}
+            update(pos, isActive) {{ 
+                super.updateLogic(pos, 1.0, isActive);
+            }}
+        }}
+
+        class ParticleSystem {{
+            constructor(scene, tex) {{
+                this.maxCount = 20000; this.idx = 0; // 增加粒子上限
+                const pos = new Float32Array(this.maxCount*3), vels = new Float32Array(this.maxCount*3), lifes = new Float32Array(this.maxCount);
+                const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+                const mat = new THREE.PointsMaterial({{ size: 0.35, map: tex, color: 0xffdd88, blending: THREE.AdditiveBlending, transparent: true, opacity: 0, depthWrite:false }});
+                this.mesh = new THREE.Points(geo, mat); this.data = {{ vels, lifes }};
+                for(let i=0; i<this.maxCount*3; i++) pos[i] = 99999; scene.add(this.mesh);
+            }}
+            emitTrail(center, intensity) {{
+                const count = Math.floor(2 + intensity * 5); 
+                for(let k=0; k<count; k++) {{
+                    const i = this.idx; const i3 = i*3; const angle = Math.random() * 6.28; const r = 1.0 + Math.random() * 2.0;
+                    this.mesh.geometry.attributes.position.array[i3] = center.x + Math.cos(angle)*r;
+                    this.mesh.geometry.attributes.position.array[i3+1] = center.y + Math.sin(angle)*r;
+                    this.mesh.geometry.attributes.position.array[i3+2] = center.z + (Math.random()-0.5)*0.5;
+                    this.data.vels[i3] = (Math.random()-0.5)*0.02; this.data.vels[i3+1] = -0.03 - Math.random()*0.03; this.data.vels[i3+2] = (Math.random()-0.5)*0.02;
+                    this.data.lifes[i] = 1.0; this.idx = (this.idx + 1) % this.maxCount;
+                }}
+            }}
+            emitBurst(center, intensity) {{
+                const count = 100; 
+                for(let k=0; k<count; k++) {{
+                    const i = this.idx; const i3 = i*3; const angle = Math.random() * 6.28; const speed = 0.1 + Math.random() * 0.5;
+                    this.mesh.geometry.attributes.position.array[i3] = center.x;
+                    this.mesh.geometry.attributes.position.array[i3+1] = center.y;
+                    this.mesh.geometry.attributes.position.array[i3+2] = center.z;
+                    this.data.vels[i3] = Math.cos(angle) * speed; this.data.vels[i3+1] = Math.sin(angle) * speed; this.data.vels[i3+2] = (Math.random()-0.5) * speed;
+                    this.data.lifes[i] = 2.0; this.idx = (this.idx + 1) % this.maxCount;
+                }}
+            }}
+            emitSpiral(center, intensity) {{
+                const count = 50;
+                for(let k=0; k<count; k++) {{
+                    const i = this.idx; const i3 = i*3; const angle = Math.random() * 6.28; const r = 4.0 + Math.random() * 3.0;
+                    this.mesh.geometry.attributes.position.array[i3] = center.x + Math.cos(angle)*r;
+                    this.mesh.geometry.attributes.position.array[i3+1] = center.y + Math.sin(angle)*r;
+                    this.mesh.geometry.attributes.position.array[i3+2] = center.z + (Math.random()-0.5)*2.0;
+                    const speed = 0.1;
+                    this.data.vels[i3] = -Math.sin(angle) * speed;
+                    this.data.vels[i3+1] = Math.cos(angle) * speed;
+                    this.data.vels[i3+2] = 0;
+                    this.data.lifes[i] = 1.5; this.idx = (this.idx + 1) % this.maxCount;
+                }}
+            }}
+            emitSuspended(center) {{
+                const count = 30; 
+                for(let k=0; k<count; k++) {{
+                    const i = this.idx; const i3 = i*3; const r = Math.random() * 2.5; const angle = Math.random() * 6.28;
+                    this.mesh.geometry.attributes.position.array[i3] = center.x + Math.cos(angle)*r;
+                    this.mesh.geometry.attributes.position.array[i3+1] = center.y + Math.sin(angle)*r;
+                    this.mesh.geometry.attributes.position.array[i3+2] = center.z + (Math.random()-0.5)*1.0;
+                    this.data.vels[i3] = (Math.random()-0.5) * 0.05; this.data.vels[i3+1] = (Math.random()-0.5) * 0.05; this.data.vels[i3+2] = (Math.random()-0.5) * 0.05;
+                    this.data.lifes[i] = 0.8 + Math.random(); this.idx = (this.idx + 1) % this.maxCount;
+                }}
+            }}
+            // 🔥 新增：混沌爆炸粒子 (Chaotic)
+            emitChaotic(center, intensity) {{
+                const count = Math.floor(10 * intensity);
+                for(let k=0; k<count; k++) {{
+                    const i = this.idx; const i3 = i*3;
+                    // 从中心点随机发射
+                    this.mesh.geometry.attributes.position.array[i3] = center.x;
+                    this.mesh.geometry.attributes.position.array[i3+1] = center.y;
+                    this.mesh.geometry.attributes.position.array[i3+2] = center.z;
+                    
+                    // 3D 随机球形方向
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos((Math.random() * 2) - 1);
+                    const speed = 0.3 + Math.random() * 0.5; // 高速
+                    
+                    this.data.vels[i3] = speed * Math.sin(phi) * Math.cos(theta);
+                    this.data.vels[i3+1] = speed * Math.sin(phi) * Math.sin(theta);
+                    this.data.vels[i3+2] = speed * Math.cos(phi);
+                    
+                    this.data.lifes[i] = 0.5 + Math.random() * 0.5; // 短寿命，闪烁感
+                    this.idx = (this.idx + 1) % this.maxCount;
+                }}
+            }}
+            update() {{
+                const pos = this.mesh.geometry.attributes.position.array; const vels = this.data.vels; const lifes = this.data.lifes; let active = false;
+                for(let i=0; i<this.maxCount; i++) {{
+                    if (lifes[i] > 0) {{
+                        const i3 = i*3; pos[i3] += vels[i3]; pos[i3+1] += vels[i3+1]; pos[i3+2] += vels[i3+2];
+                        vels[i3] *= 0.98; vels[i3+1] *= 0.98; vels[i3+2] *= 0.98; lifes[i] -= 0.015; 
+                        if(lifes[i] <= 0) pos[i3] = 99999; else active = true;
+                    }}
+                }}
+                if (active) this.mesh.geometry.attributes.position.needsUpdate = true;
+            }}
+        }}
+
+        function createTextures() {{
+            const c=document.createElement('canvas'); c.width=32; c.height=32; const x=c.getContext('2d');
+            x.fillStyle='#ffaa33'; x.beginPath(); x.arc(16,16,2,0,6.28); x.fill();
+            const g=x.createRadialGradient(16,16,0,16,16,16); g.addColorStop(0,'rgba(255,200,50,1)'); g.addColorStop(0.5,'rgba(255,100,0,0.2)'); g.addColorStop(1,'rgba(0,0,0,0)');
+            x.fillStyle=g; x.fillRect(0,0,32,32); sparkTex = new THREE.CanvasTexture(c);
+
+            const c2=document.createElement('canvas'); c2.width=64; c2.height=64; const x2=c2.getContext('2d');
+            const g2=x2.createRadialGradient(32,32,0,32,32,32); g2.addColorStop(0,'rgba(255,255,200,1)'); g2.addColorStop(0.4,'rgba(255,150,0,0.5)'); g2.addColorStop(1,'rgba(0,0,0,0)');
+            x2.fillStyle=g2; x2.fillRect(0,0,64,64); glowTex = new THREE.CanvasTexture(c2);
+        }}
+
+        function createShockwave(pos) {{
+            const geo = new THREE.RingGeometry(0.5, 1.5, 64);
+            const mat = new THREE.MeshBasicMaterial({{ color: 0xffdd88, side: THREE.DoubleSide, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending }});
+            const mesh = new THREE.Mesh(geo, mat); mesh.position.copy(pos); scene.add(mesh);
+            let s = 1.0;
+            const anim = () => {{ s += 1.5; mesh.scale.setScalar(s); mesh.material.opacity -= 0.02; if(mesh.material.opacity > 0) requestAnimationFrame(anim); else scene.remove(mesh); }};
+            anim();
+        }}
+
+        function initWorld() {{
+            scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x000000, 0.02);
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000); camera.position.set(0, 0, CAMERA_Z);
+            renderer = new THREE.WebGLRenderer({{antialias:true}}); renderer.setSize(window.innerWidth, window.innerHeight); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.body.appendChild(renderer.domElement);
+            createTextures();
+            const mat = new THREE.PointsMaterial({{ size: 0.25, map: sparkTex, color: 0xffaa33, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }});
+            smallCircles.push(new SmallCircle(scene, mat)); smallCircles.push(new SmallCircle(scene, mat));
+            const megaMat = mat.clone(); megaMat.color.setHex(0xffffee); megaCircle = new MegaCircle(scene, megaMat);
+            particles = new ParticleSystem(scene, sparkTex);
+            animate();
+        }}
+        function animate() {{ requestAnimationFrame(animate); particles.update(); renderer.render(scene, camera); }}
+        window.onresize = () => {{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }};
+    </script>
+</body>
+</html>
+"""
+
+with open("index.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+print("✅ Chaotic Particles Added.")
+print("  - New 'Chaotic Blast' particle effect")
+print("  - Continuous random explosions during Ultimate")
+print("👉 http://localhost:8000")
+Handler = http.server.SimpleHTTPRequestHandler
+with socketserver.TCPServer(("", 8000), Handler) as httpd:
+    try: httpd.serve_forever()
+    except: pass

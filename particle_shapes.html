@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Particle Shape Controller</title>
+    <style>
+        :root { --primary: #6366f1; --secondary: #ec4899; --bg: #0f0f1a; --panel-bg: rgba(15, 15, 30, 0.9); }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: var(--bg); font-family: system-ui, -apple-system, sans-serif; overflow: hidden; color: white; }
+        
+        /* Hidden Camera */
+        #video { position: absolute; opacity: 0; pointer-events: none; transform: scaleX(-1); }
+        
+        /* Start Screen */
+        #start-screen { position: fixed; inset: 0; background: var(--bg); z-index: 1000; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s; }
+        #start-screen h1 { font-size: 2.5rem; margin-bottom: 10px; background: linear-gradient(90deg, var(--primary), var(--secondary)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        #start-screen p { color: #888; margin-bottom: 30px; }
+        #start-btn { padding: 16px 48px; font-size: 1.1rem; background: linear-gradient(135deg, var(--primary), var(--secondary)); border: none; border-radius: 30px; color: white; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+        #start-btn:hover { transform: scale(1.05); box-shadow: 0 0 30px rgba(99, 102, 241, 0.5); }
+        
+        /* Control Panel */
+        #panel { position: fixed; top: 20px; left: 20px; background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px; z-index: 100; min-width: 220px; }
+        #panel h3 { font-size: 0.9rem; color: #888; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 2px; }
+        
+        .shape-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
+        .shape-btn { padding: 12px 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: white; cursor: pointer; font-size: 0.8rem; transition: 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .shape-btn:hover { background: rgba(255,255,255,0.1); }
+        .shape-btn.active { background: var(--primary); border-color: var(--primary); }
+        .shape-btn span { font-size: 1.2rem; }
+        
+        .color-section { margin-bottom: 15px; }
+        .color-section label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 8px; }
+        #color-picker { width: 100%; height: 40px; border: none; border-radius: 8px; cursor: pointer; background: transparent; }
+        
+        /* Status */
+        #status { position: fixed; top: 20px; right: 20px; background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px 20px; z-index: 100; }
+        #status .label { font-size: 0.75rem; color: #888; text-transform: uppercase; }
+        #status .value { font-size: 1.1rem; color: var(--secondary); margin-top: 4px; }
+        
+        /* Fullscreen Button */
+        #fullscreen-btn { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: white; cursor: pointer; font-size: 1.3rem; z-index: 100; transition: 0.2s; display: flex; align-items: center; justify-content: center; }
+        #fullscreen-btn:hover { background: var(--primary); }
+        
+        /* Instructions */
+        #instructions { position: fixed; bottom: 20px; left: 20px; background: var(--panel-bg); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px 18px; z-index: 100; font-size: 0.85rem; color: #aaa; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+</head>
+<body>
+    <video id="video" playsinline></video>
+    
+    <div id="start-screen">
+        <h1>✨ Particle Controller</h1>
+        <p>用双手控制 3D 粒子形态</p>
+        <button id="start-btn">开始体验</button>
+    </div>
+    
+    <div id="panel" style="display:none;">
+        <h3>选择形状</h3>
+        <div class="shape-grid">
+            <button class="shape-btn active" data-shape="heart"><span>❤️</span>爱心</button>
+            <button class="shape-btn" data-shape="flower"><span>🌸</span>花朵</button>
+            <button class="shape-btn" data-shape="saturn"><span>🪐</span>土星</button>
+            <button class="shape-btn" data-shape="buddha"><span>🧘</span>佛像</button>
+            <button class="shape-btn" data-shape="firework"><span>🎆</span>烟花</button>
+            <button class="shape-btn" data-shape="sphere"><span>🔮</span>球体</button>
+        </div>
+        <div class="color-section">
+            <label>粒子颜色</label>
+            <input type="color" id="color-picker" value="#ec4899">
+        </div>
+    </div>
+    
+    <div id="status" style="display:none;">
+        <div class="label">手势状态</div>
+        <div class="value" id="gesture-value">等待检测...</div>
+    </div>
+    
+    <button id="fullscreen-btn" style="display:none;">⛶</button>
+    
+    <div id="instructions" style="display:none;">
+        👐 张开双手放大 · ✊ 握拳缩小
+    </div>
+
+    <script>
+        // === CONFIG ===
+        const PARTICLE_COUNT = 15000;
+        const CAMERA_Z = 20;
+        
+        // === GLOBALS ===
+        let scene, camera, renderer;
+        let particles, particlePositions, basePositions;
+        let hands, cameraObj;
+        let currentShape = 'heart';
+        let targetScale = 1;
+        let currentScale = 1;
+        let targetRotationY = 0;
+        let currentRotationY = 0;
+        let particleColor = new THREE.Color(0xec4899);
+        
+        // === SHAPE GENERATORS ===
+        const ShapeGenerators = {
+            heart: (i, total) => {
+                // 实心爱心：随机填充内部
+                const t = Math.random() * Math.PI * 2;
+                const r = Math.sqrt(Math.random()); // 平方根让分布更均匀
+                const scale = 4 * r;
+                const x = scale * 16 * Math.pow(Math.sin(t), 3) / 16;
+                const y = scale * (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) / 16;
+                const z = (Math.random() - 0.5) * 1.5 * r;
+                return { x, y, z };
+            },
+            
+            flower: (i, total) => {
+                const petals = 6;
+                const t = (i / total) * Math.PI * 2 * petals;
+                const r = 3 * (1 + 0.5 * Math.sin(petals * t / petals));
+                const x = r * Math.cos(t) + (Math.random() - 0.5) * 0.5;
+                const y = r * Math.sin(t) + (Math.random() - 0.5) * 0.5;
+                const z = (Math.random() - 0.5) * 1.5;
+                return { x, y, z };
+            },
+            
+            saturn: (i, total) => {
+                const isRing = i > total * 0.5;
+                if (isRing) {
+                    // 倾斜的环
+                    const t = ((i - total * 0.5) / (total * 0.5)) * Math.PI * 2;
+                    const r = 4.5 + Math.random() * 1.0;
+                    const tilt = 0.4; // 倾斜角度
+                    const x = r * Math.cos(t);
+                    const y = r * Math.sin(t) * tilt + (Math.random() - 0.5) * 0.15;
+                    const z = r * Math.sin(t) * Math.cos(tilt);
+                    return { x, y, z };
+                } else {
+                    // 实心球体
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    const theta = Math.random() * Math.PI * 2;
+                    const r = 2.5 * Math.cbrt(Math.random());
+                    return {
+                        x: r * Math.sin(phi) * Math.cos(theta),
+                        y: r * Math.cos(phi),
+                        z: r * Math.sin(phi) * Math.sin(theta)
+                    };
+                }
+            },
+            
+            buddha: (i, total) => {
+                // SDF (Signed Distance Function) Volume Sampling
+                let px, py, pz;
+                let iter = 0;
+                
+                while (iter < 50) {
+                    px = (Math.random() - 0.5) * 5;
+                    py = (Math.random() - 0.5) * 6;
+                    pz = (Math.random() - 0.5) * 4;
+                    
+                    // 1. Head (Sphere)
+                    const head = Math.hypot(px, py - 2.2, pz) - 0.9;
+                    
+                    // 2. Body (Tapered Cylinder/Capsule)
+                    const bodyWidth = 1.0 + (2.0 - py) * 0.3; 
+                    const body = Math.hypot(px/bodyWidth, Math.max(Math.abs(py) - 1.5, 0), pz/0.8) - 1.2;
+                    
+                    // 3. Legs (Torus/Ellipsoid blend for crossed legs)
+                    const legDist = Math.hypot(px, pz) - 1.8;
+                    const legs = Math.hypot(legDist, py + 1.8) - 0.8;
+
+                    // 4. Hands (Sphere in lap)
+                    const hands = Math.hypot(px, py + 0.5, pz - 1.2) - 0.6;
+                    
+                    // Smooth Union (Min)
+                    let d = Math.min(head, body);
+                    d = Math.min(d, legs);
+                    d = Math.min(d, hands);
+                    
+                    if (d < 0) {
+                        return { x: px, y: py + 0.5, z: pz };
+                    }
+                    iter++;
+                }
+                
+                // Halo (Back ring) if rejection failed or random chance
+                if (Math.random() > 0.8) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = 3.5 + Math.random() * 0.5;
+                    return { 
+                        x: r * Math.cos(angle), 
+                        y: r * Math.sin(angle) + 0.5, 
+                        z: -1.5 
+                    };
+                }
+                return { x: 0, y: 0, z: 0 };
+            },
+            
+            firework: (i, total) => {
+                // 模拟爆炸轨迹：中心密集，向外拖尾
+                const branch = Math.floor(i / 50); // 多少个爆炸束
+                const branchProgress = (i % 50) / 50; // 每束的进度 (0-1)
+                
+                // 随机方向
+                const theta = (branch * 2.39996); // 黄金角分布
+                const yDir = (branch / (total/50)) * 2 - 1;
+                const radiusAtY = Math.sqrt(1 - yDir*yDir);
+                
+                const dirX = radiusAtY * Math.cos(theta);
+                const dirY = yDir;
+                const dirZ = radiusAtY * Math.sin(theta);
+                
+                // 爆炸扩散公式：进度越简单，距离越远，但加点随机
+                const r = Math.pow(branchProgress, 0.5) * 4.5; 
+                
+                // 增加重力下垂感
+                const gravity = branchProgress * branchProgress * 1.5;
+                
+                return {
+                    x: dirX * r,
+                    y: dirY * r - gravity + 1.0,
+                    z: dirZ * r
+                };
+            },
+            
+            sphere: (i, total) => {
+                const phi = Math.acos(2 * Math.random() - 1);
+                const theta = Math.random() * Math.PI * 2;
+                const r = 3 * Math.cbrt(Math.random());
+                return {
+                    x: r * Math.sin(phi) * Math.cos(theta),
+                    y: r * Math.cos(phi),
+                    z: r * Math.sin(phi) * Math.sin(theta)
+                };
+            }
+        };
+        
+        // === INIT ===
+        function initScene() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = CAMERA_Z;
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setClearColor(0x0f0f1a);
+            document.body.appendChild(renderer.domElement);
+            
+            // Create particles
+            const geometry = new THREE.BufferGeometry();
+            particlePositions = new Float32Array(PARTICLE_COUNT * 3);
+            basePositions = new Float32Array(PARTICLE_COUNT * 3);
+            
+            generateShape('heart');
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+            
+            const material = new THREE.PointsMaterial({
+                size: 0.08,
+                color: particleColor,
+                transparent: true,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+            
+            animate();
+        }
+        
+        function generateShape(shapeName) {
+            const generator = ShapeGenerators[shapeName];
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const pos = generator(i, PARTICLE_COUNT);
+                const i3 = i * 3;
+                basePositions[i3] = pos.x;
+                basePositions[i3 + 1] = pos.y;
+                basePositions[i3 + 2] = pos.z;
+                particlePositions[i3] = pos.x;
+                particlePositions[i3 + 1] = pos.y;
+                particlePositions[i3 + 2] = pos.z;
+            }
+            if (particles) {
+                particles.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+        
+        async function initMediaPipe() {
+            const videoElement = document.getElementById('video');
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            hands.onResults(onHandsResults);
+            
+            cameraObj = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({ image: videoElement }); },
+                width: 640,
+                height: 480
+            });
+            await cameraObj.start();
+        }
+        
+        function onHandsResults(results) {
+            const gestureValue = document.getElementById('gesture-value');
+            
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                let maxOpenness = 0; // 改为取最大值，而不是平均值
+                let totalX = 0;
+                
+                results.multiHandLandmarks.forEach((landmarks) => {
+                    // 1. 计算手掌基准大小 (手腕到中指根部的距离)
+                    const wrist = landmarks[0];
+                    const middleMCP = landmarks[9];
+                    const handSize = Math.hypot(wrist.x - middleMCP.x, wrist.y - middleMCP.y);
+                    
+                    // 2. 计算大拇指到小指的距离 (最直观的张开度)
+                    const thumb = landmarks[4];
+                    const pinky = landmarks[20];
+                    const spread = Math.hypot(thumb.x - pinky.x, thumb.y - pinky.y);
+                    
+                    // 3. 计算相对比例 (Ratio)
+                    // 无论远近，这个比例在张开时约为 1.5 - 2.0，握拳时约为 0.4 - 0.6
+                    const ratio = spread / handSize;
+                    
+                    // 4. 归一化映射
+                    // 0.5 (握拳) -> 0
+                    // 1.5 (张开) -> 1
+                    let openness = (ratio - 0.5) / 1.0;
+                    openness = Math.min(1, Math.max(0, openness));
+                    
+                    if (openness > maxOpenness) maxOpenness = openness;
+                    
+                    // 3. 累加手的位置 (X轴)
+                    totalX += middleMCP.x;
+                });
+                
+                // 缩放系数：基础大小 0.3 + 张开度 * 2.2
+                // 这样握拳时是小球，张开是大球
+                targetScale = 0.3 + maxOpenness * 2.2;
+                
+                const count = results.multiHandLandmarks.length;
+                const avgX = totalX / count;
+                
+                // Map X (0...1) to Rotation (-PI...PI)
+                targetRotationY = (avgX - 0.5) * Math.PI * 2;
+                
+                const percentage = Math.round(maxOpenness * 100);
+                gestureValue.textContent = `张开度: ${percentage}%`;
+                gestureValue.style.color = `hsl(${280 + maxOpenness * 60}, 80%, 65%)`;
+            } else {
+                targetRotationY = null; // Enable auto-rotation
+                gestureValue.textContent = '未检测到手势';
+                gestureValue.style.color = '#888';
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Smooth scale transition
+            currentScale += (targetScale - currentScale) * 0.08;
+            
+            // Smooth rotation transition
+            let rotationSpeed = 0;
+            if (targetRotationY !== null) {
+                const diff = targetRotationY - currentRotationY;
+                rotationSpeed = diff * 0.1;
+                currentRotationY += rotationSpeed;
+            } else {
+                rotationSpeed = 0.002;
+                currentRotationY += rotationSpeed;
+            }
+            
+            // Update particle positions
+            const time = Date.now() * 0.001;
+            
+            // Pre-calculate rotation matrix for performance
+            const cosR = Math.cos(currentRotationY);
+            const sinR = Math.sin(currentRotationY);
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                const baseX = basePositions[i3];
+                const baseY = basePositions[i3 + 1];
+                const baseZ = basePositions[i3 + 2];
+                
+                // Apply scale with slight wave effect
+                const wave = Math.sin(time + i * 0.01) * 0.05;
+                const s = currentScale * (1 + wave);
+                
+                const sx = baseX * s;
+                const sy = baseY * s;
+                const sz = baseZ * s;
+                
+                // Apply Y-axis rotation manually to positions
+                // x' = x*cos - z*sin
+                // z' = x*sin + z*cos
+                particlePositions[i3] = sx * cosR - sz * sinR;
+                particlePositions[i3 + 1] = sy;
+                particlePositions[i3 + 2] = sx * sinR + sz * cosR;
+            }
+            particles.geometry.attributes.position.needsUpdate = true;
+            
+            // Remove object rotation since we rotate vertices manually
+            // particles.rotation.y += 0.002; 
+            
+            renderer.render(scene, camera);
+        }
+        
+        // === UI EVENTS ===
+        document.getElementById('start-btn').addEventListener('click', async () => {
+            document.getElementById('start-screen').style.opacity = 0;
+            setTimeout(() => {
+                document.getElementById('start-screen').style.display = 'none';
+                document.getElementById('panel').style.display = 'block';
+                document.getElementById('status').style.display = 'block';
+                document.getElementById('fullscreen-btn').style.display = 'flex';
+                document.getElementById('instructions').style.display = 'block';
+            }, 500);
+            
+            initScene();
+            await initMediaPipe();
+        });
+        
+        document.querySelectorAll('.shape-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentShape = btn.dataset.shape;
+                generateShape(currentShape);
+            });
+        });
+        
+        document.getElementById('color-picker').addEventListener('input', (e) => {
+            particleColor.set(e.target.value);
+            if (particles) {
+                particles.material.color = particleColor;
+            }
+        });
+        
+        document.getElementById('fullscreen-btn').addEventListener('click', () => {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                document.documentElement.requestFullscreen();
+            }
+        });
+        
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+    </script>
+</body>
+</html>
