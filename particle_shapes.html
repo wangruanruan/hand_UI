@@ -301,9 +301,7 @@
             hands.onResults(onHandsResults);
             
             cameraObj = new Camera(videoElement, {
-                onFrame: async () => { 
-                    if (hands) await hands.send({ image: videoElement }); 
-                },
+                onFrame: async () => { await hands.send({ image: videoElement }); },
                 width: 640,
                 height: 480
             });
