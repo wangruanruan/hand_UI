@@ -60,6 +60,7 @@
         </div>
         <div class="hud-box bottom">
             <span>RAISE HAND TO CAST SPELL</span>
+            <div id="debug-info" style="margin-top:10px; color:#0f0; font-size:14px;"></div>
         </div>
     </div>
     
@@ -276,29 +277,23 @@
 
                 if (handData[0]) {
                     smallCircles[0].update(handData[0].pos, handData[0].energy);
-                    
-                    // 🔥 拖尾和火星 - 直接使用手势位置
                     particles.emitTrail(handData[0].pos, 0.6 + handData[0].energy);
-                    if (handData[0].energy > 0.2) {
-                        sparks.emit(handData[0].pos, handData[0].energy, Date.now() * 0.003);
-                    }
                     synth.setLoopVol(0, handData[0].energy); 
                 } else {
                     smallCircles[0].update(smallCircles[0].mesh.position, 0);
                     synth.setLoopVol(0, 0);
                 }
+                // 火星在 animate 中发射
 
                 if (handData[1]) {
                     smallCircles[1].update(handData[1].pos, handData[1].energy);
                     particles.emitTrail(handData[1].pos, 0.6 + handData[1].energy);
-                    if (handData[1].energy > 0.2) {
-                        sparks.emit(handData[1].pos, handData[1].energy, Date.now() * 0.003);
-                    }
                     synth.setLoopVol(1, handData[1].energy);
                 } else {
                     smallCircles[1].update(smallCircles[1].mesh.position, 0);
                     synth.setLoopVol(1, 0);
                 }
+                // 火星在 animate 中发射
             }
         }
 
@@ -346,7 +341,7 @@
             updateLogic(targetPos, targetEnergy, isUltimate) {
                 this.mesh.position.lerp(targetPos, 0.25);
                 this.energy += (targetEnergy - this.energy) * 0.15;
-                if(this.energy < 0.01 && !isUltimate) { this.mesh.visible = false; return; }
+                if(this.energy < 0.03 && !isUltimate) { this.mesh.visible = false; return; }
                 this.mesh.visible = true;
                 const pulse = isUltimate ? (1 + Math.sin(Date.now()*0.008)*0.1) : 1;
                 this.mesh.scale.setScalar(this.baseScale * pulse);
@@ -549,7 +544,7 @@
             // 发射火星：从魔法阵边缘，沿切线+径向飞出
             emit(center, intensity, rotation) {
                 const count = Math.floor(10 + intensity * 20); // 更密集
-                const radius = 2.0 + intensity * 1.0; // 魔法阵半径
+                const radius = 4.2; // 魔法阵外圈半径
                 
                 for(let k=0; k<count; k++) {
                     const i = this.idx;
@@ -564,20 +559,23 @@
                     pos[i3+1] = center.y + Math.sin(angle) * radius;
                     pos[i3+2] = center.z + (Math.random() - 0.5) * 0.5;
                     
-                    // 速度：更斜的飞溅 - 增大切线分量
-                    const speed = 0.15 + Math.random() * 0.25;
-                    const tangent = 0.8; // 切线分量比例（更斜）
+                    // 速度：主要沿切线方向飞出（斜向溅射）
+                    const speed = 0.2 + Math.random() * 0.3;
                     
-                    // 径向速度
-                    const radialX = Math.cos(angle) * speed;
-                    const radialY = Math.sin(angle) * speed;
+                    // 切线为主，径向为辅
+                    const radialRatio = 0.2;  // 径向分量（向外）
+                    const tangentRatio = 1.0; // 切线分量（旋转方向）
                     
-                    // 切线速度 (垂直于径向)
-                    const tangentX = -Math.sin(angle) * speed * tangent;
-                    const tangentY = Math.cos(angle) * speed * tangent;
+                    // 切线方向 (垂直于径向，顺时针)
+                    const tangentX = -Math.sin(angle) * speed * tangentRatio;
+                    const tangentY = Math.cos(angle) * speed * tangentRatio;
                     
-                    this.vels[i3] = radialX + tangentX + (Math.random()-0.5)*0.1;
-                    this.vels[i3+1] = radialY + tangentY + (Math.random()-0.5)*0.1;
+                    // 径向方向 (向外)
+                    const radialX = Math.cos(angle) * speed * radialRatio;
+                    const radialY = Math.sin(angle) * speed * radialRatio;
+                    
+                    this.vels[i3] = tangentX + radialX + (Math.random()-0.5)*0.05;
+                    this.vels[i3+1] = tangentY + radialY + (Math.random()-0.5)*0.05;
                     this.vels[i3+2] = (Math.random()-0.5) * 0.15;
                     
                     this.lifes[i] = 0.8 + Math.random() * 0.5;
@@ -657,6 +655,14 @@
             requestAnimationFrame(animate); 
             particles.update(); 
             sparks.update(); 
+            
+            // 🔥 火星跟魔法阵同步发射
+            smallCircles.forEach(circle => {
+                if (circle.mesh.visible) {
+                    sparks.emit(circle.mesh.position, circle.energy, Date.now() * 0.002);
+                }
+            });
+            
             renderer.render(scene, camera); 
         }
         window.onresize = () => { camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
