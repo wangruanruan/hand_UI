@@ -49,7 +49,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 </head>
 <body>
-    <video id="video" playsinline></video>
+    <video id="video" playsinline autoplay muted></video>
     
     <div id="start-screen">
         <h1>✨ Particle Controller</h1>
@@ -303,7 +303,8 @@
             cameraObj = new Camera(videoElement, {
                 onFrame: async () => { await hands.send({ image: videoElement }); },
                 width: 640,
-                height: 480
+                height: 480,
+                facingMode: 'user'  // 移动端使用前置摄像头
             });
             await cameraObj.start();
         }
