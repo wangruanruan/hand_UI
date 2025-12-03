@@ -289,24 +289,56 @@
         
         async function initMediaPipe() {
             const videoElement = document.getElementById('video');
-            hands = new Hands({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-            });
-            hands.setOptions({
-                maxNumHands: 2,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-            hands.onResults(onHandsResults);
+            const gestureValue = document.getElementById('gesture-value');
             
-            cameraObj = new Camera(videoElement, {
-                onFrame: async () => { await hands.send({ image: videoElement }); },
-                width: 640,
-                height: 480,
-                facingMode: 'user'  // 移动端使用前置摄像头
-            });
-            await cameraObj.start();
+            try {
+                gestureValue.textContent = '1/4 加载AI模型...';
+                
+                hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+                
+                gestureValue.textContent = '2/4 配置模型...';
+                
+                hands.setOptions({
+                    maxNumHands: 2,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                hands.onResults(onHandsResults);
+                
+                gestureValue.textContent = '3/4 请求摄像头权限...';
+                
+                cameraObj = new Camera(videoElement, {
+                    onFrame: async () => { 
+                        try {
+                            await hands.send({ image: videoElement }); 
+                        } catch(e) {
+                            console.error('Frame error:', e);
+                        }
+                    },
+                    width: 640,
+                    height: 480,
+                    facingMode: 'user'
+                });
+                
+                await cameraObj.start();
+                
+                gestureValue.textContent = '4/4 摄像头已启动，等待检测...';
+                gestureValue.style.color = '#0f0';
+                
+            } catch (e) {
+                console.error('初始化失败:', e);
+                gestureValue.textContent = '❌ 错误: ' + e.message;
+                gestureValue.style.color = '#f44';
+                
+                // 显示更多调试信息
+                const debug = document.createElement('div');
+                debug.style.cssText = 'position:fixed;bottom:80px;left:20px;right:20px;background:#300;color:#fff;padding:10px;font-size:12px;border-radius:8px;word-break:break-all;';
+                debug.textContent = e.stack || e.toString();
+                document.body.appendChild(debug);
+            }
         }
         
         function onHandsResults(results) {
