@@ -292,23 +292,36 @@
             const gestureValue = document.getElementById('gesture-value');
             
             try {
-                gestureValue.textContent = '1/4 加载AI模型...';
+                // 检测浏览器兼容性
+                const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
+                const hasWasm = typeof WebAssembly !== 'undefined';
+                
+                if (!hasWasm) {
+                    throw new Error('浏览器不支持 WebAssembly');
+                }
+                
+                gestureValue.textContent = '1/4 加载AI模型...' + (hasSharedArrayBuffer ? '' : ' (兼容模式)');
                 
                 hands = new Hands({
                     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
                 });
                 
-                gestureValue.textContent = '2/4 配置模型...';
+                gestureValue.textContent = '2/4 初始化模型...'
+                
+                // 等待 MediaPipe 完全初始化
+                await hands.initialize();
+                
+                gestureValue.textContent = '3/5 配置模型...';
                 
                 hands.setOptions({
                     maxNumHands: 2,
-                    modelComplexity: 0,  // 改为 0（Lite模型），安卓兼容性更好
+                    modelComplexity: 0,  // Lite模型，安卓兼容性更好
                     minDetectionConfidence: 0.5,
                     minTrackingConfidence: 0.5
                 });
                 hands.onResults(onHandsResults);
                 
-                gestureValue.textContent = '3/4 请求摄像头权限...';
+                gestureValue.textContent = '4/5 请求摄像头权限...';
                 
                 cameraObj = new Camera(videoElement, {
                     onFrame: async () => { 
@@ -325,7 +338,7 @@
                 
                 await cameraObj.start();
                 
-                gestureValue.textContent = '4/4 摄像头已启动，等待检测...';
+                gestureValue.textContent = '5/5 摄像头已启动，等待检测...';
                 gestureValue.style.color = '#0f0';
                 
                 // 调试：显示视频状态
