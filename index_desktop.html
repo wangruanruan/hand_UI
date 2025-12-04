@@ -258,10 +258,10 @@
                     // 🔥 蓄力时的拖尾增强
                     particles.emitTrail(target, 1.5 + mergeProgress); 
                     
-                    // 🔥 蓄力时的火星溅射 - 调用独立火星系统
-                    if (mergeProgress > 0.1) {
-                        sparks.emit(target, mergeProgress, circle.mesh.rotation.z);
-                    }
+                    // 🔥 蓄力时的火星溅射 - 暂时禁用
+                    // if (mergeProgress > 0.1) {
+                    //     sparks.emit(target, mergeProgress, circle.mesh.rotation.z);
+                    // }
                 });
                 
                 // 🔥 蓄力音效
