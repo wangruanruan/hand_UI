@@ -328,6 +328,14 @@
                 gestureValue.textContent = '4/4 摄像头已启动，等待检测...';
                 gestureValue.style.color = '#0f0';
                 
+                // 调试：显示视频状态
+                setTimeout(() => {
+                    const vw = videoElement.videoWidth;
+                    const vh = videoElement.videoHeight;
+                    const playing = !videoElement.paused && !videoElement.ended;
+                    gestureValue.textContent = `视频: ${vw}x${vh} ${playing ? '播放中' : '未播放'}`;
+                }, 2000);
+                
             } catch (e) {
                 console.error('初始化失败:', e);
                 gestureValue.textContent = '❌ 错误: ' + e.message;
