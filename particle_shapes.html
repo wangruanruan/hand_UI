@@ -318,11 +318,16 @@
                 
                 gestureValue.textContent = '3/4 请求摄像头权限...';
                 
+                let sendCount = 0;
+                let errorMsg = '';
+                
                 cameraObj = new Camera(videoElement, {
                     onFrame: async () => { 
                         try {
+                            sendCount++;
                             await hands.send({ image: videoElement }); 
                         } catch(e) {
+                            errorMsg = e.message;
                             console.error('Frame error:', e);
                         }
                     },
@@ -330,6 +335,14 @@
                     height: 480,
                     facingMode: 'user'
                 });
+                
+                // 每2秒显示发送状态
+                setInterval(() => {
+                    if (frameCount === 0) {  // 如果 onHandsResults 没被调用
+                        gestureValue.textContent = `发送:${sendCount} 回调:${frameCount} ${errorMsg}`;
+                        gestureValue.style.color = '#fa0';
+                    }
+                }, 2000);
                 
                 await cameraObj.start();
                 
