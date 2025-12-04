@@ -645,8 +645,8 @@
             smallCircles.push(new SmallCircle(scene, mat)); smallCircles.push(new SmallCircle(scene, mat));
             const megaMat = mat.clone(); megaMat.color.setHex(0xffffee); megaCircle = new MegaCircle(scene, megaMat);
             
-            // 粒子系统（拖尾+火星）- 暂时禁用提升性能
-            // particles = new ParticleSystem(scene, sparkTex);
+            // 粒子系统（拖尾）
+            particles = new ParticleSystem(scene, sparkTex);
             
             // 🔥 独立的火星系统 - 暂时禁用提升性能
             // sparks = new SparkSystem(scene);
@@ -655,7 +655,7 @@
         }
         function animate() { 
             requestAnimationFrame(animate); 
-            // particles.update();  // 暂时禁用
+            particles.update();
             // sparks.update();  // 暂时禁用
             
             // 🔥 火星跟魔法阵同步发射 - 暂时禁用
