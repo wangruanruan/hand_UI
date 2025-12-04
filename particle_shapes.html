@@ -349,8 +349,16 @@
             }
         }
         
+        let frameCount = 0;  // 调试：统计帧数
+        
         function onHandsResults(results) {
             const gestureValue = document.getElementById('gesture-value');
+            
+            // 调试：显示回调次数
+            frameCount++;
+            if (frameCount % 30 === 0) {  // 每30帧更新一次
+                gestureValue.textContent = `检测中... 帧:${frameCount} 手:${results.multiHandLandmarks?.length || 0}`;
+            }
             
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 let maxOpenness = 0; // 改为取最大值，而不是平均值
