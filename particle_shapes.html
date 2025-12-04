@@ -306,38 +306,7 @@
                     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
                 });
                 
-                gestureValue.textContent = '2/5 初始化模型...';
-                
-                // 等待 MediaPipe 完全初始化，设置超时
-                const initPromise = hands.initialize();
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('模型加载超时')), 15000)
-                );
-                
-                try {
-                    await Promise.race([initPromise, timeoutPromise]);
-                } catch (e) {
-                    // 如果超时，显示兼容性提示
-                    gestureValue.textContent = '⚠️ 设备不兼容';
-                    gestureValue.style.color = '#fa0';
-                    
-                    const notice = document.createElement('div');
-                    notice.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#222;color:#fff;padding:20px;border-radius:12px;text-align:center;max-width:300px;z-index:999;';
-                    notice.innerHTML = `
-                        <div style="font-size:40px;margin-bottom:10px;">😔</div>
-                        <div style="font-size:16px;margin-bottom:10px;">此设备/浏览器不支持 AI 手势检测</div>
-                        <div style="font-size:12px;color:#888;">
-                            建议：<br>
-                            • 使用 iPhone Safari<br>
-                            • 使用电脑 Chrome<br>
-                            • 安卓请尝试 Firefox
-                        </div>
-                    `;
-                    document.body.appendChild(notice);
-                    return;  // 停止后续初始化
-                }
-                
-                gestureValue.textContent = '3/5 配置模型...';
+                gestureValue.textContent = '2/4 配置模型...';
                 
                 hands.setOptions({
                     maxNumHands: 2,
@@ -347,7 +316,7 @@
                 });
                 hands.onResults(onHandsResults);
                 
-                gestureValue.textContent = '4/5 请求摄像头权限...';
+                gestureValue.textContent = '3/4 请求摄像头权限...';
                 
                 cameraObj = new Camera(videoElement, {
                     onFrame: async () => { 
@@ -364,7 +333,7 @@
                 
                 await cameraObj.start();
                 
-                gestureValue.textContent = '5/5 摄像头已启动，等待检测...';
+                gestureValue.textContent = '4/4 摄像头已启动，等待检测...';
                 gestureValue.style.color = '#0f0';
                 
                 // 调试：显示视频状态
