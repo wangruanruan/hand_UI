@@ -45,7 +45,8 @@
     </div>
     <div id="hidden-cam"><video id="video" playsinline autoplay muted></video></div>
     
-    <!-- HUD Overlay -->
+    <!-- HUD Overlay - 暂时禁用 -->
+    <!--
     <div id="hud">
         <div class="hud-row">
             <div class="hud-box left">
@@ -63,6 +64,7 @@
             <div id="debug-info" style="margin-top:10px; color:#0f0; font-size:14px;"></div>
         </div>
     </div>
+    -->
     
     <!-- Audio Tags Removed: Using Web Audio API Synthesizer -->
 
@@ -165,8 +167,8 @@
                 initWorld(); await initMediaPipe();
                 document.getElementById('layer').style.opacity = 0;
                 setTimeout(() => document.getElementById('layer').style.display = 'none', 800);
-                document.getElementById('hud').classList.add('active');
-                document.getElementById('system-status').innerText = 'ACTIVE';
+                // document.getElementById('hud').classList.add('active');
+                // document.getElementById('system-status').innerText = 'ACTIVE';
                 try { document.documentElement.requestFullscreen(); } catch(e){}
             } catch(e) { alert(e); location.reload(); }
         }
@@ -183,7 +185,7 @@
         function onHandsResults(results) {
             const handData = [];
             if (results.multiHandLandmarks) {
-                document.getElementById('gesture-status').innerText = results.multiHandLandmarks.length > 0 ? `DETECTED: ${results.multiHandLandmarks.length}` : 'NO SIGNAL';
+                // document.getElementById('gesture-status').innerText = results.multiHandLandmarks.length > 0 ? `DETECTED: ${results.multiHandLandmarks.length}` : 'NO SIGNAL';
                 results.multiHandLandmarks.forEach((lm) => {
                     const vFOV = THREE.Math.degToRad(camera.fov);
                     const height = 2 * Math.tan(vFOV / 2) * CAMERA_Z;
@@ -199,7 +201,7 @@
                     handData.push({ pos: new THREE.Vector3(wx, wy, 0), energy: energy });
                 });
             } else {
-                document.getElementById('gesture-status').innerText = 'NO SIGNAL';
+                // document.getElementById('gesture-status').innerText = 'NO SIGNAL';
             }
 
             let dist = 999;
