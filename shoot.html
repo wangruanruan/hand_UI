@@ -3,24 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Gesture Shooter - Full Arcade</title>
+    <title>AR Gesture Shooter - Fixed Aim</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial', sans-serif; }
         #container { position: relative; width: 100vw; height: 100vh; }
         
-        /* 视频层：镜像翻转 */
+        /* 视频层 */
         #input_video { 
             position: absolute; width: 100%; height: 100%; object-fit: cover; 
             transform: scaleX(-1); z-index: 1; opacity: 0; 
         }
         
-        /* 游戏层：镜像翻转以匹配视频 */
+        /* 游戏层 */
         #output_canvas { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             z-index: 2; transform: scaleX(-1); 
         }
 
-        /* UI层：不镜像，但坐标需要手动计算翻转 */
         #ui_layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 3;
             pointer-events: none;
@@ -55,8 +54,6 @@
             0% { transform: translateY(0) scale(1); opacity: 1; }
             100% { transform: translateY(-60px) scale(1.2); opacity: 0; }
         }
-        
-        #loading { color: white; margin-top: 10px; font-size: 14px; }
     </style>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -66,7 +63,7 @@
 <body>
 
 <div id="container">
-    <video id="input_video" playsinline autoplay muted></video>
+    <video id="input_video" playsinline></video>
     <canvas id="output_canvas"></canvas>
     
     <div id="ui_layer">
@@ -74,20 +71,17 @@
     </div>
 
     <div id="start_screen">
-        <h1 style="color:white; margin-bottom:10px;">AR 街机射击</h1>
+        <h1 style="color:white; margin-bottom:10px;">AR 街机射击 (修正版)</h1>
         <p style="color:#aaa; text-align: center; line-height: 1.6;">
             👈 食指瞄准 | 👍 大拇指射击<br>
-            Hit: +100 分 | Miss: 空枪 | Escaped: 敌人逃跑
+            已修复准星追踪问题
         </p>
         <button id="start_btn" disabled>加载中...</button>
-        <div id="loading">正在初始化 MediaPipe...</div>
+        <div id="loading" style="color:white; margin-top:10px; font-size:12px;">正在初始化 MediaPipe...</div>
     </div>
 </div>
 
 <script>
-/**
- * 全局配置
- */
 const MP_VERSION = '0.4.1646424915';
 const MP_BASE_URL = `https://unpkg.com/@mediapipe/hands@${MP_VERSION}/`;
 
@@ -102,26 +96,21 @@ let score = 0;
 let enemies = [];
 const ENEMY_COUNT = 5; 
 let audioCtx;
-
-// 游戏状态
 let isPlaying = false;
 let handLandmarks = null;
 let lastShotTime = 0;
-const SHOT_COOLDOWN = 300; // 射击间隔 ms
+const SHOT_COOLDOWN = 300; 
 
-// 屏幕边界 (Three.js 坐标系)
 const BOUNDS_X = 14; 
 const BOUNDS_Y = 10;
 
-/**
- * 1. 初始化 Three.js
- */
+// --- 1. Three.js 初始化 ---
 function initThree() {
     scene = new THREE.Scene();
-    
-    // 正交相机配置
     const aspect = window.innerWidth / window.innerHeight;
     const frustumSize = 20;
+    
+    // 确保相机的配置和第一版完全一致
     camera = new THREE.OrthographicCamera(
         frustumSize * aspect / -2, frustumSize * aspect / 2,
         frustumSize / 2, frustumSize / -2, 
@@ -133,7 +122,6 @@ function initThree() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     
-    // 灯光
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(0, 5, 10);
     scene.add(light);
@@ -172,32 +160,25 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-/**
- * 2. 敌人生成与移动逻辑
- */
+// --- 2. 敌人逻辑 ---
 function spawnEnemy() {
     if (enemies.length >= ENEMY_COUNT) return;
 
     const geometry = new THREE.CylinderGeometry(0.9, 0.9, 0.15, 32);
-    geometry.rotateX(Math.PI / 2); // 调整圆柱朝向
+    geometry.rotateX(Math.PI / 2); 
     const material = new THREE.MeshPhongMaterial({ color: getRandomColor() });
     const enemy = new THREE.Mesh(geometry, material);
 
-    // 随机方向：1 (左到右) 或 -1 (右到左)
     const direction = Math.random() > 0.5 ? 1 : -1; 
-    
-    // 起始位置：屏幕外侧
     const startX = direction === 1 ? -BOUNDS_X - 2 : BOUNDS_X + 2;
     const startY = (Math.random() - 0.5) * (BOUNDS_Y * 1.5);
 
     enemy.position.set(startX, startY, 0);
-
-    // 保存个体属性
     enemy.userData = { 
         dirX: direction,
-        speedX: 0.04 + Math.random() * 0.04, // 随机速度
-        waveAmp: 0.02 + Math.random() * 0.03, // 波动幅度
-        timeOffset: Math.random() * 100 // 波动相位
+        speedX: 0.04 + Math.random() * 0.04, 
+        waveAmp: 0.02 + Math.random() * 0.03, 
+        timeOffset: Math.random() * 100 
     };
 
     scene.add(enemy);
@@ -208,32 +189,23 @@ function updateEnemies() {
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         
-        // 移动 X
         e.position.x += e.userData.dirX * e.userData.speedX;
-        // 波动 Y (正弦波)
         e.position.y += Math.sin(e.position.x * 2 + e.userData.timeOffset) * e.userData.waveAmp;
-        
-        // 自转
         e.rotation.z += 0.05;
         e.rotation.x += 0.02;
 
-        // 边界检查
         let isOut = false;
         if (e.userData.dirX === 1 && e.position.x > BOUNDS_X + 2) isOut = true;
         if (e.userData.dirX === -1 && e.position.x < -BOUNDS_X - 2) isOut = true;
 
         if (isOut) {
-            // 敌人逃跑：显示红字
             let missX = e.userData.dirX === 1 ? BOUNDS_X : -BOUNDS_X;
             triggerVisualEffect("ESCAPED", missX, e.position.y, '#ff4444'); 
-            
-            // 移除并生成新敌人
             scene.remove(e);
             enemies.splice(i, 1);
             spawnEnemy(); 
         }
     }
-    // 自动补位
     while(enemies.length < ENEMY_COUNT) spawnEnemy();
 }
 
@@ -242,9 +214,7 @@ function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
-/**
- * 3. 音效与文字特效
- */
+// --- 3. 音效与视觉特效 ---
 function initAudio() { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 
 function playSound(type) {
@@ -255,7 +225,6 @@ function playSound(type) {
     gain.connect(audioCtx.destination);
 
     if (type === 'shoot') {
-        // 射击声
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(880, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
@@ -263,7 +232,6 @@ function playSound(type) {
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
         osc.start(); osc.stop(audioCtx.currentTime + 0.1);
     } else if (type === 'hit') {
-        // 命中声
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(200, audioCtx.currentTime);
         osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.1);
@@ -279,7 +247,6 @@ function triggerVisualEffect(text, x, y, color) {
     div.innerText = text;
     div.style.color = color;
     
-    // 坐标转换：ThreeJS -> Screen
     const widthHalf = window.innerWidth / 2;
     const heightHalf = window.innerHeight / 2;
     const frustumHeight = 20;
@@ -288,31 +255,24 @@ function triggerVisualEffect(text, x, y, color) {
     let screenX = (x / (frustumWidth/2)) * widthHalf + widthHalf;
     const screenY = -(y / (frustumHeight/2)) * heightHalf + heightHalf;
     
-    // 修正镜像：Canvas 翻转了，但 DIV 没有翻转，所以 X 坐标需要反算
     screenX = window.innerWidth - screenX; 
-    
-    // 钳制防止飞出屏幕外
     screenX = Math.max(50, Math.min(window.innerWidth - 50, screenX));
     screenY = Math.max(50, Math.min(window.innerHeight - 50, screenY));
 
     div.style.left = `${screenX}px`;
     div.style.top = `${screenY}px`;
     document.getElementById('ui_layer').appendChild(div);
-    
-    // 0.8秒后移除
     setTimeout(() => div.remove(), 800);
 }
 
-/**
- * 4. MediaPipe 初始化
- */
+// --- 4. MediaPipe ---
 function initMediaPipe() {
     const hands = new Hands({
         locateFile: (file) => `${MP_BASE_URL}${file}`
     });
     hands.setOptions({
         maxNumHands: 1,
-        modelComplexity: 0, // 0: 性能优先, 1: 精度优先
+        modelComplexity: 1, // 关键修复：改回高精度模式
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
     });
@@ -323,12 +283,11 @@ function initMediaPipe() {
 
     const cameraUtils = new Camera(videoElement, {
         onFrame: async () => await hands.send({image: videoElement}),
-        width: 640, height: 480
+        width: 1280, height: 720 // 关键修复：改回高分辨率输入
     });
 
-    // UI 准备就绪
     startBtn.disabled = false;
-    startBtn.innerText = "开始游戏 (Start)";
+    startBtn.innerText = "开始游戏";
     document.getElementById('loading').style.display = 'none';
 
     startBtn.addEventListener('click', () => {
@@ -340,54 +299,50 @@ function initMediaPipe() {
     });
 }
 
-/**
- * 5. 游戏主循环逻辑 (核心部分)
- */
+// --- 5. 游戏主逻辑 ---
 function processGameLogic() {
-    let targetPos = new THREE.Vector3(0, -10, 0); // 默认位置
+    // 默认位置改为中心 (0,0,0) 而不是底部，这样即使追踪丢失也不会卡在最下面
+    let targetPos = new THREE.Vector3(0, 0, 0); 
     let isShooting = false;
     let hitEnemy = null;
+    let hasHand = false;
 
     if (handLandmarks) {
-        // --- 坐标映射 ---
+        hasHand = true;
         const frustumHeight = 20;
         const frustumWidth = frustumHeight * (window.innerWidth / window.innerHeight);
         
-        const indexTip = handLandmarks[8];  // 食指尖
-        const thumbTip = handLandmarks[4];  // 拇指尖
-        const indexBase = handLandmarks[5]; // 食指根
-        const wrist = handLandmarks[0];     // 手腕
+        const indexTip = handLandmarks[8];
+        const thumbTip = handLandmarks[4];
+        const indexBase = handLandmarks[5];
+        const wrist = handLandmarks[0];
 
-        // 计算准心坐标 (0~1 -> -Width/2~Width/2)
+        // 关键修复：使用第一版的坐标计算公式
         const rawX = (indexTip.x - 0.5) * frustumWidth;
         const rawY = -(indexTip.y - 0.5) * frustumHeight;
         let aimPos = new THREE.Vector3(rawX, rawY, 0);
 
-        // --- 磁吸辅助 (Aim Assist) ---
+        // 磁吸
         let closestDist = 999;
         let magneticTarget = null;
         for (let e of enemies) {
             const dist = aimPos.distanceTo(e.position);
-            // 距离小于 3.5 则吸附
             if (dist < 3.5 && dist < closestDist) {
                 closestDist = dist;
                 magneticTarget = e;
             }
         }
-        
         if (magneticTarget) {
             aimPos.lerp(magneticTarget.position, 0.4); 
-            reticleMesh.material.color.setHex(0xff0055); // 红色锁定
+            reticleMesh.material.color.setHex(0xff0055); 
             reticleMesh.scale.setScalar(0.8);
             hitEnemy = magneticTarget;
         } else {
-            reticleMesh.material.color.setHex(0x00ff00); // 绿色未锁定
+            reticleMesh.material.color.setHex(0x00ff00); 
             reticleMesh.scale.setScalar(1.0);
         }
         targetPos = aimPos;
 
-        // --- 射击检测 ---
-        // 拇指尖与食指根部距离
         const triggerDist = Math.hypot(thumbTip.x - indexBase.x, thumbTip.y - indexBase.y);
         if (triggerDist < 0.05) {
             const now = Date.now();
@@ -397,7 +352,7 @@ function processGameLogic() {
             }
         }
 
-        // --- 激光更新 ---
+        // 激光
         const wristX = (wrist.x - 0.5) * frustumWidth;
         const wristY = -(wrist.y - 0.5) * frustumHeight;
         const posAttr = laserLine.geometry.attributes.position;
@@ -405,37 +360,32 @@ function processGameLogic() {
         posAttr.setXYZ(1, targetPos.x, targetPos.y, 0);
         posAttr.needsUpdate = true;
     } else {
-        // 没检测到手，隐藏激光
-        const posAttr = laserLine.geometry.attributes.position;
-        posAttr.setXYZ(0, 0, -20, 0);
-        posAttr.setXYZ(1, 0, -20, 0);
-        posAttr.needsUpdate = true;
+        // 没检测到手时，隐藏准心和激光，而不是让它卡在底部
+        reticleMesh.visible = false;
+        laserLine.visible = false;
     }
 
-    // 更新准心位置
-    reticleMesh.position.copy(targetPos);
+    if (hasHand) {
+        reticleMesh.visible = true;
+        laserLine.visible = true;
+        reticleMesh.position.copy(targetPos);
 
-    // --- 射击处理 ---
-    if (isShooting) {
-        // 视觉后坐力
-        reticleMesh.scale.set(1.5, 1.5, 1);
-        setTimeout(() => reticleMesh.scale.set(1, 1, 1), 100);
+        if (isShooting) {
+            playSound('shoot');
+            reticleMesh.scale.set(1.5, 1.5, 1);
+            setTimeout(() => reticleMesh.scale.set(1, 1, 1), 100);
 
-        if (hitEnemy) {
-            // 情况1: 击中敌人
-            playSound('hit');
-            triggerVisualEffect("HIT!", hitEnemy.position.x, hitEnemy.position.y, '#ffff00');
-            score += 100;
-            scoreEl.innerText = score;
-            
-            // 移除该敌人并生成新的
-            scene.remove(hitEnemy);
-            enemies = enemies.filter(e => e !== hitEnemy);
-            spawnEnemy();
-        } else {
-            // 情况2: 打空了 (Miss)
-            playSound('shoot'); // 只播放射击声
-            triggerVisualEffect("MISS", targetPos.x, targetPos.y, '#cccccc');
+            if (hitEnemy) {
+                playSound('hit');
+                triggerVisualEffect("HIT!", hitEnemy.position.x, hitEnemy.position.y, '#ffff00');
+                score += 100;
+                scoreEl.innerText = score;
+                scene.remove(hitEnemy);
+                enemies = enemies.filter(e => e !== hitEnemy);
+                spawnEnemy();
+            } else {
+                triggerVisualEffect("MISS", targetPos.x, targetPos.y, '#cccccc');
+            }
         }
     }
 }
@@ -449,10 +399,8 @@ function animate() {
     }
 }
 
-// 启动
 initThree();
 initMediaPipe();
-
 </script>
 </body>
 </html>
