@@ -50,8 +50,8 @@
         #crosshair.locked { border-color: #ff0000; background: rgba(255, 0, 0, 0.15); box-shadow: 0 0 25px #ff0000; width: 60px; height: 60px; }
         #crosshair::after { content: ''; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #fff; transform: translate(-50%, -50%); border-radius: 50%; }
 
-        #input_video { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; z-index: 10; transform: scaleX(-1); border: 2px solid #333; background: #000; opacity: 0.8; }
-        #output_canvas { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; z-index: 11; transform: scaleX(-1); pointer-events: none; }
+        #input_video { display: none; }
+        #output_canvas { display: none; }
     </style>
 </head>
 <body>
@@ -374,9 +374,7 @@
       loaderMask.style.opacity = 0;
       setTimeout(() => { loaderMask.style.display = 'none'; }, 500);
     }
-    canvasElement.width = 320; canvasElement.height = 240;
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    // 跳过画布操作，提升性能
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
       const lm = results.multiHandLandmarks[0];
@@ -384,7 +382,7 @@
 
       if (dist(index, wrist) > 0.18) {
         if (!isPistol) { isPistol = true; crosshair.style.display = 'block'; }
-        drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
+        // drawConnectors 已禁用
         const aimX = (1 - index.x); const aimY = index.y;
         targetAim.set((aimX * 2) - 1, -(aimY * 2) + 1);
 
@@ -394,7 +392,7 @@
           if (dTrigger < TRIGGER_PRESS_THRESHOLD) {
             fire();
             triggerState = 'pressed';
-            drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#FF0000', lineWidth: 6});
+            // drawConnectors 已禁用
           }
         } else if (triggerState === 'pressed') {
           if (dTrigger > TRIGGER_RELEASE_THRESHOLD) { triggerState = 'released'; }
@@ -403,7 +401,7 @@
     } else {
       if (isPistol) { isPistol = false; crosshair.style.display = 'none'; }
     }
-    canvasCtx.restore();
+    // canvasCtx.restore();
   }
 
   startSystem();
