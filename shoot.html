@@ -120,7 +120,7 @@ function initThree() {
 
     renderer = new THREE.WebGLRenderer({ canvas: canvasElement, alpha: true, antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制像素比
     
     const light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(0, 5, 10);
@@ -164,7 +164,7 @@ function onWindowResize() {
 function spawnEnemy() {
     if (enemies.length >= ENEMY_COUNT) return;
 
-    const geometry = new THREE.CylinderGeometry(0.9, 0.9, 0.15, 32);
+    const geometry = new THREE.CylinderGeometry(0.9, 0.9, 0.15, 16); // 减少面数
     geometry.rotateX(Math.PI / 2); 
     const material = new THREE.MeshPhongMaterial({ color: getRandomColor() });
     const enemy = new THREE.Mesh(geometry, material);
@@ -272,7 +272,7 @@ function initMediaPipe() {
     });
     hands.setOptions({
         maxNumHands: 1,
-        modelComplexity: 1, // 关键修复：改回高精度模式
+        modelComplexity: 0, // 性能优先
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
     });
@@ -283,7 +283,7 @@ function initMediaPipe() {
 
     const cameraUtils = new Camera(videoElement, {
         onFrame: async () => await hands.send({image: videoElement}),
-        width: 1280, height: 720 // 关键修复：改回高分辨率输入
+        width: 640, height: 480 // 性能优先
     });
 
     startBtn.disabled = false;
