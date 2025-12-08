@@ -240,16 +240,14 @@
   scene.add(laserLine);
 
   // 飞盘类
-  const discGeo = new THREE.CylinderGeometry(3, 3, 0.5, 32);
-  const ringGeo = new THREE.TorusGeometry(3.5, 0.2, 8, 32);
+  const discGeo = new THREE.CylinderGeometry(3, 3, 0.5, 16); // 简化几何体
 
   class Disc {
     constructor() {
       const color = new THREE.Color().setHSL(Math.random(), 0.8, 0.5);
       const mat = new THREE.MeshPhongMaterial({ color: color, emissive: color, emissiveIntensity: 0.4 });
       this.mesh = new THREE.Mesh(discGeo, mat);
-      const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
-      ring.rotation.x = Math.PI/2; this.mesh.add(ring);
+      // 去掉光环，提升性能
 
       // ★ 1. 四面八方生成逻辑 ★
       const side = Math.floor(Math.random() * 4); // 0:左, 1:右, 2:上, 3:下
@@ -410,8 +408,6 @@
 
   // ★ 生成循环：保持同屏 4 个 ★
   setInterval(() => {
-    // 只要少于 MAX_DISCS，就立刻补充
-    // 并且加一点随机延迟，避免同时出现太整齐
     if (discs.filter(d => d.active).length < MAX_DISCS) {
       discs.push(new Disc());
     }
@@ -422,8 +418,12 @@
     updateAiming();
     discs.forEach(d=>d.update());
     particles.forEach(p=>p.update());
-    // 清理已完成的粒子
+    // 清理已完成的粒子和飞盘
     particles = particles.filter(p => p.active);
+    // 清理不活跃的飞盘，防止数组无限增长
+    for (let i = discs.length - 1; i >= 0; i--) {
+      if (!discs[i].active) discs.splice(i, 1);
+    }
     renderer.render(scene, camera);
   }
   animate();
