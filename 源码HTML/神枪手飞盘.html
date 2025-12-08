@@ -107,7 +107,7 @@
   const targetAim = new THREE.Vector2();
   const raycaster = new THREE.Raycaster();
   const discs = [];
-  const particles = [];
+  let particles = [];
 
   // ★★★ 核心配置修改区 ★★★
   const MAX_DISCS = 4; // 同屏最多 4 个 (打掉会自动补)
