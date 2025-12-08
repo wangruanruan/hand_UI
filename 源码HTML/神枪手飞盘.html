@@ -122,6 +122,7 @@
         <span id="score-val">0</span>
     </div>
     <div id="crosshair"></div>
+    <div id="debug-info" style="position:absolute; bottom:220px; right:20px; color:#0f0; font-family:monospace; font-size:14px; background:rgba(0,0,0,0.7); padding:5px 10px; z-index:50;"></div>
 </div>
 
 <!-- 开始界面 -->
@@ -591,8 +592,8 @@
         targetAim.set((aimX * 2) - 1, -(aimY * 2) + 1);
 
         const dTrigger = dist(thumb, indexBase);
+        document.getElementById('debug-info').textContent = `dTrigger: ${dTrigger.toFixed(3)} | state: ${triggerState} | threshold: ${TRIGGER_PRESS_THRESHOLD}`;
         if (triggerState === 'released') {
-          // ★ 高灵敏扳机：0.20 ★
           if (dTrigger < TRIGGER_PRESS_THRESHOLD) {
             fire();
             triggerState = 'pressed';
