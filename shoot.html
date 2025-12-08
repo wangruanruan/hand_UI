@@ -3,38 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>AR Gesture Shooter - Nano Banana Pro</title>
+    <title>AR Gesture Shooter - Full Arcade</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial', sans-serif; }
         #container { position: relative; width: 100vw; height: 100vh; }
         
-        /* 视频层：镜像翻转以符合直觉 */
+        /* 视频层：镜像翻转 */
         #input_video { 
             position: absolute; width: 100%; height: 100%; object-fit: cover; 
-            transform: scaleX(-1); z-index: 1; opacity: 0; /* MediaPipe接管前隐藏 */
+            transform: scaleX(-1); z-index: 1; opacity: 0; 
         }
         
-        /* 游戏层：Three.js 画布 */
+        /* 游戏层：镜像翻转以匹配视频 */
         #output_canvas { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            z-index: 2; transform: scaleX(-1); /* 配合视频镜像 */
+            z-index: 2; transform: scaleX(-1); 
         }
 
-        /* UI层 */
+        /* UI层：不镜像，但坐标需要手动计算翻转 */
         #ui_layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 3;
             pointer-events: none;
-            display: flex; flex-direction: column; justify-content: space-between;
         }
 
         #score_board {
-            padding: 20px; color: #0ff; font-size: 24px; font-weight: bold;
+            position: absolute; top: 20px; left: 20px;
+            color: #0ff; font-size: 24px; font-weight: bold;
             text-shadow: 0 0 10px #0ff;
         }
 
         #start_screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 10;
+            background: rgba(0,0,0,0.85); z-index: 10;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             pointer-events: auto;
         }
@@ -42,18 +42,18 @@
         button {
             padding: 15px 40px; font-size: 24px; background: #ff0055; color: white;
             border: none; border-radius: 30px; cursor: pointer;
-            box-shadow: 0 0 20px #ff0055; transition: transform 0.2s;
+            box-shadow: 0 0 20px #ff0055; margin-top: 20px;
         }
         button:active { transform: scale(0.95); }
 
-        /* 浮动文字特效 */
         .floater {
             position: absolute; font-weight: 900; font-size: 30px;
-            animation: floatUp 1s ease-out forwards; pointer-events: none;
+            animation: floatUp 0.8s ease-out forwards; pointer-events: none;
+            text-shadow: 2px 2px 0 #000; white-space: nowrap;
         }
         @keyframes floatUp {
             0% { transform: translateY(0) scale(1); opacity: 1; }
-            100% { transform: translateY(-100px) scale(1.5); opacity: 0; }
+            100% { transform: translateY(-60px) scale(1.2); opacity: 0; }
         }
         
         #loading { color: white; margin-top: 10px; font-size: 14px; }
@@ -66,7 +66,7 @@
 <body>
 
 <div id="container">
-    <video id="input_video" playsinline></video>
+    <video id="input_video" playsinline autoplay muted></video>
     <canvas id="output_canvas"></canvas>
     
     <div id="ui_layer">
@@ -74,49 +74,54 @@
     </div>
 
     <div id="start_screen">
-        <h1 style="color:white; text-align:center;">AR 手势射击</h1>
-        <p style="color:#aaa; max-width: 300px; text-align: center;">
-            👈 食指瞄准 | 👍 大拇指下压射击<br>
+        <h1 style="color:white; margin-bottom:10px;">AR 街机射击</h1>
+        <p style="color:#aaa; text-align: center; line-height: 1.6;">
+            👈 食指瞄准 | 👍 大拇指射击<br>
+            Hit: +100 分 | Miss: 空枪 | Escaped: 敌人逃跑
         </p>
         <button id="start_btn" disabled>加载中...</button>
-        <div id="loading">正在初始化 MediaPipe (v0.4.1646424915)...</div>
+        <div id="loading">正在初始化 MediaPipe...</div>
     </div>
 </div>
 
 <script>
 /**
- * 核心配置与全局变量
+ * 全局配置
  */
-const MP_VERSION = '0.4.1646424915'; // 强制锁死版本
+const MP_VERSION = '0.4.1646424915';
 const MP_BASE_URL = `https://unpkg.com/@mediapipe/hands@${MP_VERSION}/`;
 
 const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('output_canvas');
 const scoreEl = document.getElementById('score_val');
-const startScreen = document.getElementById('start_screen');
 const startBtn = document.getElementById('start_btn');
-const loadingText = document.getElementById('loading');
+const startScreen = document.getElementById('start_screen');
 
 let scene, camera, renderer;
 let score = 0;
 let enemies = [];
-const ENEMY_COUNT = 4;
+const ENEMY_COUNT = 5; 
 let audioCtx;
 
 // 游戏状态
 let isPlaying = false;
 let handLandmarks = null;
 let lastShotTime = 0;
-const SHOT_COOLDOWN = 400; // 射击冷却 ms
+const SHOT_COOLDOWN = 300; // 射击间隔 ms
+
+// 屏幕边界 (Three.js 坐标系)
+const BOUNDS_X = 14; 
+const BOUNDS_Y = 10;
 
 /**
- * 1. 初始化 Three.js 场景
+ * 1. 初始化 Three.js
  */
 function initThree() {
     scene = new THREE.Scene();
-    // 使用正交相机模拟 2D HUD 覆盖层
+    
+    // 正交相机配置
     const aspect = window.innerWidth / window.innerHeight;
-    const frustumSize = 20; // 视口大小
+    const frustumSize = 20;
     camera = new THREE.OrthographicCamera(
         frustumSize * aspect / -2, frustumSize * aspect / 2,
         frustumSize / 2, frustumSize / -2, 
@@ -129,33 +134,27 @@ function initThree() {
     renderer.setPixelRatio(window.devicePixelRatio);
     
     // 灯光
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-    scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    dirLight.position.set(5, 10, 7);
-    scene.add(dirLight);
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(0, 5, 10);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 
-    // 准心 (Reticle)
     createReticle();
-    
-    // 激光指示线 (Laser)
     createLaser();
-
     window.addEventListener('resize', onWindowResize, false);
 }
 
 let reticleMesh, laserLine;
 
 function createReticle() {
-    const geometry = new THREE.RingGeometry(0.4, 0.5, 32);
-    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
+    const geometry = new THREE.RingGeometry(0.3, 0.45, 32);
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8 });
     reticleMesh = new THREE.Mesh(geometry, material);
-    reticleMesh.position.set(0, 0, 0);
     scene.add(reticleMesh);
 }
 
 function createLaser() {
-    const material = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2, opacity: 0.6, transparent: true });
+    const material = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2, opacity: 0.5, transparent: true });
     const points = [new THREE.Vector3(0, -10, 0), new THREE.Vector3(0, 0, 0)];
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     laserLine = new THREE.Line(geometry, material);
@@ -174,26 +173,31 @@ function onWindowResize() {
 }
 
 /**
- * 2. 敌人逻辑 (Enemies)
+ * 2. 敌人生成与移动逻辑
  */
-function spawnEnemy(forceImmediate = false) {
-    if (enemies.length >= ENEMY_COUNT && !forceImmediate) return;
+function spawnEnemy() {
+    if (enemies.length >= ENEMY_COUNT) return;
 
-    const geometry = new THREE.CylinderGeometry(0.8, 0.8, 0.2, 32);
-    geometry.rotateX(Math.PI / 2); // 变成圆盘朝向摄像机
-    const material = new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff, shininess: 100 });
+    const geometry = new THREE.CylinderGeometry(0.9, 0.9, 0.15, 32);
+    geometry.rotateX(Math.PI / 2); // 调整圆柱朝向
+    const material = new THREE.MeshPhongMaterial({ color: getRandomColor() });
     const enemy = new THREE.Mesh(geometry, material);
 
-    // 随机生成在屏幕边缘外
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 15; // 屏幕外距离
-    enemy.position.x = Math.cos(angle) * radius;
-    enemy.position.y = Math.sin(angle) * radius;
+    // 随机方向：1 (左到右) 或 -1 (右到左)
+    const direction = Math.random() > 0.5 ? 1 : -1; 
     
-    // 随机速度
+    // 起始位置：屏幕外侧
+    const startX = direction === 1 ? -BOUNDS_X - 2 : BOUNDS_X + 2;
+    const startY = (Math.random() - 0.5) * (BOUNDS_Y * 1.5);
+
+    enemy.position.set(startX, startY, 0);
+
+    // 保存个体属性
     enemy.userData = { 
-        speed: 0.03 + Math.random() * 0.05,
-        rotationSpeed: (Math.random() - 0.5) * 0.2
+        dirX: direction,
+        speedX: 0.04 + Math.random() * 0.04, // 随机速度
+        waveAmp: 0.02 + Math.random() * 0.03, // 波动幅度
+        timeOffset: Math.random() * 100 // 波动相位
     };
 
     scene.add(enemy);
@@ -203,37 +207,45 @@ function spawnEnemy(forceImmediate = false) {
 function updateEnemies() {
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
-        // 向中心(0,0,0)移动
-        e.position.x -= e.position.x * e.userData.speed;
-        e.position.y -= e.position.y * e.userData.speed;
-        e.rotation.z += e.userData.rotationSpeed;
+        
+        // 移动 X
+        e.position.x += e.userData.dirX * e.userData.speedX;
+        // 波动 Y (正弦波)
+        e.position.y += Math.sin(e.position.x * 2 + e.userData.timeOffset) * e.userData.waveAmp;
+        
+        // 自转
+        e.rotation.z += 0.05;
+        e.rotation.x += 0.02;
 
-        // 碰到中心 Game Over 或扣分（这里简单处理：重置）
-        if (Math.abs(e.position.x) < 0.5 && Math.abs(e.position.y) < 0.5) {
-            triggerVisualEffect("MISS", 0, 0, '#ff0000');
-            resetEnemy(e);
+        // 边界检查
+        let isOut = false;
+        if (e.userData.dirX === 1 && e.position.x > BOUNDS_X + 2) isOut = true;
+        if (e.userData.dirX === -1 && e.position.x < -BOUNDS_X - 2) isOut = true;
+
+        if (isOut) {
+            // 敌人逃跑：显示红字
+            let missX = e.userData.dirX === 1 ? BOUNDS_X : -BOUNDS_X;
+            triggerVisualEffect("ESCAPED", missX, e.position.y, '#ff4444'); 
+            
+            // 移除并生成新敌人
+            scene.remove(e);
+            enemies.splice(i, 1);
+            spawnEnemy(); 
         }
     }
-    // 补位
-    while(enemies.length < ENEMY_COUNT) {
-        spawnEnemy();
-    }
+    // 自动补位
+    while(enemies.length < ENEMY_COUNT) spawnEnemy();
 }
 
-function resetEnemy(enemy) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 12 + Math.random() * 5;
-    enemy.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0);
-    enemy.material.color.setHex(Math.random() * 0xffffff);
+function getRandomColor() {
+    const colors = [0xff0055, 0x00aaff, 0xffff00, 0x00ff00, 0xffaa00];
+    return colors[Math.floor(Math.random() * colors.length)];
 }
 
 /**
- * 3. 简单的音频合成 (Audio Synthesis)
- * 避免加载外部mp3导致跨域或加载问题
+ * 3. 音效与文字特效
  */
-function initAudio() {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}
+function initAudio() { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 
 function playSound(type) {
     if (!audioCtx) return;
@@ -243,236 +255,193 @@ function playSound(type) {
     gain.connect(audioCtx.destination);
 
     if (type === 'shoot') {
-        // 激光音效
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        // 射击声
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.1);
     } else if (type === 'hit') {
-        // 爆炸音效
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(100, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        // 命中声
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.1);
         gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.15);
     }
 }
 
-/**
- * 4. 浮动文字特效
- */
 function triggerVisualEffect(text, x, y, color) {
     const div = document.createElement('div');
     div.className = 'floater';
     div.innerText = text;
     div.style.color = color;
     
-    // 将 Three.js 坐标转换为 屏幕 CSS 坐标
-    // 这里的 x, y 是 Three.js 世界坐标。需要投影。
-    // 由于是正交相机且对齐了，我们可以做一个近似的映射。
-    // width/2 + x * scale ... 但 CSS 坐标原点在左上角，ThreeJS在中心
-    
-    // 简便方法：由于我们使用了全屏正交，直接按比例算
+    // 坐标转换：ThreeJS -> Screen
     const widthHalf = window.innerWidth / 2;
     const heightHalf = window.innerHeight / 2;
-    
-    // 正交相机的视口高度是 20 (camera.top - camera.bottom)
-    // 视口宽度是 20 * aspect
     const frustumHeight = 20;
     const frustumWidth = frustumHeight * (window.innerWidth / window.innerHeight);
     
-    const screenX = ( x / (frustumWidth/2) ) * widthHalf + widthHalf;
-    const screenY = -( y / (frustumHeight/2) ) * heightHalf + heightHalf;
+    let screenX = (x / (frustumWidth/2)) * widthHalf + widthHalf;
+    const screenY = -(y / (frustumHeight/2)) * heightHalf + heightHalf;
+    
+    // 修正镜像：Canvas 翻转了，但 DIV 没有翻转，所以 X 坐标需要反算
+    screenX = window.innerWidth - screenX; 
+    
+    // 钳制防止飞出屏幕外
+    screenX = Math.max(50, Math.min(window.innerWidth - 50, screenX));
+    screenY = Math.max(50, Math.min(window.innerHeight - 50, screenY));
 
-    // 注意：因为父级有 scaleX(-1)，我们需要反转 x 坐标的计算
-    // UI层没有 scaleX(-1)，但 canvas 有。视觉上为了对齐手部，UI需要放在镜像位置
-    // 最简单的做法：直接在CSS里把 floater 放在正确位置，不考虑镜像，因为文字不能镜像
-    // 修正：UI层没有镜像，所以 screenX 需要按照正常逻辑计算，但因为画面是镜像的，
-    // 如果飞盘在左边（ThreeJS x < 0），在屏幕上（镜像后）看起来是在右边。
-    // 所以 UI 文字应该出现在右边。
-    
-    div.style.left = `${window.innerWidth - screenX}px`; // 反转X轴适配镜像
+    div.style.left = `${screenX}px`;
     div.style.top = `${screenY}px`;
-    
     document.getElementById('ui_layer').appendChild(div);
-    setTimeout(() => div.remove(), 1000);
+    
+    // 0.8秒后移除
+    setTimeout(() => div.remove(), 800);
 }
 
 /**
- * 5. MediaPipe Hands 配置 (核心部分)
+ * 4. MediaPipe 初始化
  */
 function initMediaPipe() {
     const hands = new Hands({
-        locateFile: (file) => {
-            // 关键：强制返回指定版本的 unpkg 路径
-            return `${MP_BASE_URL}${file}`;
-        }
+        locateFile: (file) => `${MP_BASE_URL}${file}`
     });
-
     hands.setOptions({
         maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7
+        modelComplexity: 0, // 0: 性能优先, 1: 精度优先
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    hands.onResults((results) => {
+        handLandmarks = results.multiHandLandmarks && results.multiHandLandmarks.length > 0 
+            ? results.multiHandLandmarks[0] : null;
     });
 
-    hands.onResults(onHandsResults);
+    const cameraUtils = new Camera(videoElement, {
+        onFrame: async () => await hands.send({image: videoElement}),
+        width: 640, height: 480
+    });
 
-    // 激活开始按钮
+    // UI 准备就绪
     startBtn.disabled = false;
-    startBtn.innerText = "开始游戏 / START GAME";
-    loadingText.style.display = 'none';
+    startBtn.innerText = "开始游戏 (Start)";
+    document.getElementById('loading').style.display = 'none';
 
-    // 绑定开始事件
     startBtn.addEventListener('click', () => {
         startScreen.style.display = 'none';
         initAudio();
         isPlaying = true;
-        
-        // 启动摄像头
-        const cameraUtils = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({image: videoElement});
-            },
-            width: 1280,
-            height: 720
-        });
         cameraUtils.start();
-        
-        // 启动 Three.js 循环
         animate();
     });
 }
 
 /**
- * 6. 手势识别与游戏逻辑循环
+ * 5. 游戏主循环逻辑 (核心部分)
  */
-function onHandsResults(results) {
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        handLandmarks = results.multiHandLandmarks[0];
-    } else {
-        handLandmarks = null;
-    }
-}
-
 function processGameLogic() {
-    // 默认准心归位
-    let targetPos = new THREE.Vector3(0, -10, 0); // 屏幕下方隐藏
+    let targetPos = new THREE.Vector3(0, -10, 0); // 默认位置
     let isShooting = false;
     let hitEnemy = null;
 
     if (handLandmarks) {
-        // 坐标映射: MediaPipe (0~1) -> Three.js (World Coords)
-        // MP: x(0 left, 1 right), y(0 top, 1 bottom)
-        // ThreeJS Ortho: 0,0 center.
-        
+        // --- 坐标映射 ---
         const frustumHeight = 20;
         const frustumWidth = frustumHeight * (window.innerWidth / window.innerHeight);
-
-        // 获取关键点：食指指尖(8), 掌根(0)用于激光起点, 大拇指指尖(4), 食指根部(5)
-        const indexTip = handLandmarks[8];
-        const wrist = handLandmarks[0];
-        const thumbTip = handLandmarks[4];
-        const middlePip = handLandmarks[10]; // 中指关节，用于判断握拳
-
-        // 转换食指坐标到 Three.js 空间
-        const rawX = (indexTip.x - 0.5) * frustumWidth; // 此时是镜像前的
-        const rawY = -(indexTip.y - 0.5) * frustumHeight;
         
-        // 基础准心位置
+        const indexTip = handLandmarks[8];  // 食指尖
+        const thumbTip = handLandmarks[4];  // 拇指尖
+        const indexBase = handLandmarks[5]; // 食指根
+        const wrist = handLandmarks[0];     // 手腕
+
+        // 计算准心坐标 (0~1 -> -Width/2~Width/2)
+        const rawX = (indexTip.x - 0.5) * frustumWidth;
+        const rawY = -(indexTip.y - 0.5) * frustumHeight;
         let aimPos = new THREE.Vector3(rawX, rawY, 0);
 
-        // --- 磁吸辅助 (Magnetic Aim Assist) ---
+        // --- 磁吸辅助 (Aim Assist) ---
         let closestDist = 999;
         let magneticTarget = null;
-        
-        // 检测所有敌人，寻找最近的
         for (let e of enemies) {
             const dist = aimPos.distanceTo(e.position);
-            if (dist < 3.0) { // 磁吸半径
-                if (dist < closestDist) {
-                    closestDist = dist;
-                    magneticTarget = e;
-                }
+            // 距离小于 3.5 则吸附
+            if (dist < 3.5 && dist < closestDist) {
+                closestDist = dist;
+                magneticTarget = e;
             }
         }
-
+        
         if (magneticTarget) {
-            // 吸附！
             aimPos.lerp(magneticTarget.position, 0.4); 
-            reticleMesh.material.color.setHex(0xff0000); // 锁定变红
+            reticleMesh.material.color.setHex(0xff0055); // 红色锁定
+            reticleMesh.scale.setScalar(0.8);
             hitEnemy = magneticTarget;
         } else {
-            reticleMesh.material.color.setHex(0x00ff00); // 未锁定绿色
-            hitEnemy = null;
+            reticleMesh.material.color.setHex(0x00ff00); // 绿色未锁定
+            reticleMesh.scale.setScalar(1.0);
         }
-        
         targetPos = aimPos;
 
-        // --- 射击触发检测 (Trigger) ---
-        // 计算大拇指指尖(4) 到 食指掌指关节(5) 或 中指关节(10) 的距离
-        // 简单做法：ThumbTip(4) 与 IndexMCP(5) 的欧氏距离
-        const triggerDist = Math.hypot(thumbTip.x - handLandmarks[5].x, thumbTip.y - handLandmarks[5].y);
-        
-        // 阈值需要调试，通常 0.05 左右表示捏合/按下
-        if (triggerDist < 0.06) {
+        // --- 射击检测 ---
+        // 拇指尖与食指根部距离
+        const triggerDist = Math.hypot(thumbTip.x - indexBase.x, thumbTip.y - indexBase.y);
+        if (triggerDist < 0.05) {
             const now = Date.now();
             if (now - lastShotTime > SHOT_COOLDOWN) {
                 isShooting = true;
                 lastShotTime = now;
             }
         }
-        
-        // 更新激光起点 (从手腕或屏幕底部发射)
+
+        // --- 激光更新 ---
         const wristX = (wrist.x - 0.5) * frustumWidth;
         const wristY = -(wrist.y - 0.5) * frustumHeight;
-        const startVec = new THREE.Vector3(wristX, wristY, 0);
-        
-        // 更新激光几何体
-        const positions = laserLine.geometry.attributes.position.array;
-        positions[0] = startVec.x; positions[1] = startVec.y; positions[2] = 0;
-        positions[3] = targetPos.x; positions[4] = targetPos.y; positions[5] = 0;
-        laserLine.geometry.attributes.position.needsUpdate = true;
+        const posAttr = laserLine.geometry.attributes.position;
+        posAttr.setXYZ(0, wristX, wristY, 0);
+        posAttr.setXYZ(1, targetPos.x, targetPos.y, 0);
+        posAttr.needsUpdate = true;
     } else {
-        // 没有检测到手，隐藏激光
-        const positions = laserLine.geometry.attributes.position.array;
-        positions[0] = 0; positions[1] = -20; positions[2] = 0;
-        positions[3] = 0; positions[4] = -20; positions[5] = 0;
-        laserLine.geometry.attributes.position.needsUpdate = true;
+        // 没检测到手，隐藏激光
+        const posAttr = laserLine.geometry.attributes.position;
+        posAttr.setXYZ(0, 0, -20, 0);
+        posAttr.setXYZ(1, 0, -20, 0);
+        posAttr.needsUpdate = true;
     }
 
     // 更新准心位置
     reticleMesh.position.copy(targetPos);
 
-    // 处理射击结果
+    // --- 射击处理 ---
     if (isShooting) {
-        playSound('shoot');
-        // 准心动画
+        // 视觉后坐力
         reticleMesh.scale.set(1.5, 1.5, 1);
         setTimeout(() => reticleMesh.scale.set(1, 1, 1), 100);
 
         if (hitEnemy) {
-            // 命中！
+            // 情况1: 击中敌人
             playSound('hit');
             triggerVisualEffect("HIT!", hitEnemy.position.x, hitEnemy.position.y, '#ffff00');
             score += 100;
             scoreEl.innerText = score;
-            resetEnemy(hitEnemy);
+            
+            // 移除该敌人并生成新的
+            scene.remove(hitEnemy);
+            enemies = enemies.filter(e => e !== hitEnemy);
+            spawnEnemy();
         } else {
-            // 空枪
-            triggerVisualEffect("MISS", targetPos.x, targetPos.y, '#ccc');
+            // 情况2: 打空了 (Miss)
+            playSound('shoot'); // 只播放射击声
+            triggerVisualEffect("MISS", targetPos.x, targetPos.y, '#cccccc');
         }
     }
 }
 
 function animate() {
     requestAnimationFrame(animate);
-
     if (isPlaying) {
         updateEnemies();
         processGameLogic();
@@ -480,7 +449,7 @@ function animate() {
     }
 }
 
-// 启动流程
+// 启动
 initThree();
 initMediaPipe();
 
