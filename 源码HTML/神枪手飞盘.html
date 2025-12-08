@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>神枪手：四面埋伏 (高灵敏)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; user-select: none; font-family: 'Segoe UI', sans-serif; }
+
+        /* 加载遮罩 */
+        #loader-mask {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: #0f0; transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 60px; height: 60px; border: 6px solid #333; border-top: 6px solid #0f0;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 30px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loader-text { font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #0f0; }
+        #loader-sub { color: #888; margin-top: 10px; font-family: monospace; max-width: 80%; text-align: center; }
+
+        #error-box { display: none; margin-top: 20px; padding: 15px; border: 1px solid red; color: red; background: #220000; }
+
+        /* UI */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+        #score-board { position: absolute; top: 20px; right: 20px; text-align: right; }
+        #score-val { color: #ff0055; font-family: 'Impact', sans-serif; font-size: 60px; text-shadow: 0 0 15px #ff0055; letter-spacing: 2px; display: block; }
+        #level-val { color: #00ffff; font-family: sans-serif; font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #00ffff; display: block; margin-top: 5px; }
+
+        .floating-text {
+            position: absolute; font-weight: bold; font-family: 'Arial Black', sans-serif;
+            pointer-events: none; animation: floatUp 0.8s forwards; text-shadow: 2px 2px 0 #000; z-index: 40;
+        }
+        .text-hit { color: #ffff00; font-size: 32px; text-shadow: 0 0 10px #ffaa00; }
+        .text-miss { color: #aaaaaa; font-size: 20px; opacity: 0.8; }
+        @keyframes floatUp {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            20% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+            100% { transform: translate(-50%, -150%) scale(1.0); opacity: 0; }
+        }
+
+        #crosshair {
+            position: absolute; width: 80px; height: 80px;
+            border: 4px solid rgba(0, 255, 255, 0.3); border-radius: 50%;
+            transform: translate(-50%, -50%); z-index: 30; pointer-events: none; display: none;
+            transition: width 0.1s, height 0.1s;
+        }
+        #crosshair.locked { border-color: #ff0000; background: rgba(255, 0, 0, 0.15); box-shadow: 0 0 25px #ff0000; width: 60px; height: 60px; }
+        #crosshair::after { content: ''; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #fff; transform: translate(-50%, -50%); border-radius: 50%; }
+
+        #input_video { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; z-index: 10; transform: scaleX(-1); border: 2px solid #333; background: #000; opacity: 0.8; }
+        #output_canvas { position: absolute; bottom: 20px; right: 20px; width: 240px; height: 180px; z-index: 11; transform: scaleX(-1); pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div id="loader-mask">
+    <div class="spinner" id="spinner"></div>
+    <div id="loader-text">系统自检中...</div>
+    <div id="loader-sub">点击屏幕激活音频</div>
+    <div id="error-box"></div>
+</div>
+
+<div id="ui-layer">
+    <div id="score-board">
+        <span id="score-val">0</span>
+        <span id="level-val">MAX 4</span>
+    </div>
+    <div id="crosshair"></div>
+</div>
+
+<video id="input_video" autoplay playsinline></video>
+<canvas id="output_canvas"></canvas>
+
+<!-- 本地库 -->
+<script src="./libs/control_utils.js"></script>
+<script src="./libs/drawing_utils.js"></script>
+<script src="./libs/hands.js"></script>
+<script src="./libs/three.min.js"></script>
+
+<script>
+
+  // DOM
+  const loaderMask = document.getElementById('loader-mask');
+  const loaderText = document.getElementById('loader-text');
+  const errorBox = document.getElementById('error-box');
+  const spinner = document.getElementById('spinner');
+  const videoElement = document.getElementById('input_video');
+  const canvasElement = document.getElementById('output_canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const crosshair = document.getElementById('crosshair');
+  const scoreEl = document.getElementById('score-val');
+  const uiLayer = document.getElementById('ui-layer');
+
+  // 变量
+  let hands;
+  let isProcessing = false;
+  let gameReady = false;
+  let retryCount = 0;
+
+  let score = 0;
+  let isPistol = false;
+  let canShoot = true;
+  const currentAim = new THREE.Vector2();
+  const targetAim = new THREE.Vector2();
+  const raycaster = new THREE.Raycaster();
+  const discs = [];
+  const particles = [];
+
+  // ★★★ 核心配置修改区 ★★★
+  const MAX_DISCS = 4; // 同屏最多 4 个 (打掉会自动补)
+  let spawnCheckRate = 100; // 每 100ms 检查一次是否需要补货
+
+  // ★★★ 灵敏度调教 (高灵敏) ★★★
+  let triggerState = 'released';
+  // 0.10: 只要大拇指稍微弯曲一点点就开火 (之前是 0.08)
+  const TRIGGER_PRESS_THRESHOLD = 0.10;
+  const TRIGGER_RELEASE_THRESHOLD = 0.14;
+  // 0.7: 准心跟手极快，延迟极低 (之前是 0.5)
+  const AIM_SMOOTH_FACTOR = 0.7;
+
+  // 音频
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  document.body.addEventListener('click', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); });
+
+  const Sound = {
+    shoot: () => playTone('triangle', 800, 100, 0.1, 0.3),
+    hit: () => playTone('sawtooth', 200, 50, 0.1, 0.5),
+    miss: () => playTone('sine', 100, 50, 0.1, 0.2)
+  };
+
+  function playTone(type, startFreq, endFreq, duration, vol) {
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(startFreq, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, audioCtx.currentTime + duration);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration + 0.1);
+  }
+
+  // ==========================================
+  // 1. 系统启动
+  // ==========================================
+  function fatalError(msg) {
+    spinner.style.display='none';
+    loaderText.innerText = "❌ 启动失败";
+    loaderText.style.color = "red";
+    errorBox.style.display = 'block';
+    errorBox.innerText = msg;
+  }
+
+  async function startSystem() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      videoElement.srcObject = stream;
+      videoElement.onloadedmetadata = () => {
+        videoElement.play();
+        loaderText.innerText = "下载 AI 核心...";
+        initMediaPipe();
+      };
+    } catch (err) { fatalError("摄像头错误: " + err.message); }
+  }
+
+  function initMediaPipe() {
+    try {
+      // 使用本地库
+      hands = new Hands({locateFile: (file) => `./libs/${file}`});
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      hands.onResults(onResults);
+      requestAnimationFrame(processVideoLoop);
+
+    } catch (err) { fatalError("AI 引擎错误: " + err.message); }
+  }
+
+  let lastAIRunTime = 0;
+  async function processVideoLoop(timestamp) {
+    if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+      // 30FPS 采样率
+      if (!isProcessing && (timestamp - lastAIRunTime) > 33) {
+        isProcessing = true;
+        lastAIRunTime = timestamp;
+        try {
+          await hands.send({image: videoElement});
+          retryCount = 0;
+        } catch (e) {
+          retryCount++;
+          if (retryCount > 100) return;
+        } finally {
+          isProcessing = false;
+        }
+      }
+    }
+    requestAnimationFrame(processVideoLoop);
+  }
+
+  // ==========================================
+  // 2. 游戏逻辑
+  // ==========================================
+  function spawnFloatingText(text, pos3D, type) {
+    const vec = pos3D.clone(); vec.project(camera);
+    const x = (vec.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (-(vec.y * 0.5) + 0.5) * window.innerHeight;
+    const el = document.createElement('div');
+    el.innerText = text;
+    el.className = `floating-text ${type === 'hit' ? 'text-hit' : 'text-miss'}`;
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    uiLayer.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 800);
+  }
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a10);
+  scene.fog = new THREE.FogExp2(0x0a0a10, 0.015);
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+  camera.position.set(0, 0, 40);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+  const dirLight = new THREE.DirectionalLight(0x00ffff, 1.5);
+  dirLight.position.set(-20, 20, 10); scene.add(dirLight);
+
+  const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -20, 30), new THREE.Vector3(0, 0, 0)]);
+  const laserMat = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.3 });
+  const laserLine = new THREE.Line(laserGeo, laserMat);
+  scene.add(laserLine);
+
+  // 飞盘类
+  const discGeo = new THREE.CylinderGeometry(3, 3, 0.5, 32);
+  const ringGeo = new THREE.TorusGeometry(3.5, 0.2, 8, 32);
+
+  class Disc {
+    constructor() {
+      const color = new THREE.Color().setHSL(Math.random(), 0.8, 0.5);
+      const mat = new THREE.MeshPhongMaterial({ color: color, emissive: color, emissiveIntensity: 0.4 });
+      this.mesh = new THREE.Mesh(discGeo, mat);
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      ring.rotation.x = Math.PI/2; this.mesh.add(ring);
+
+      // ★ 1. 四面八方生成逻辑 ★
+      const side = Math.floor(Math.random() * 4); // 0:左, 1:右, 2:上, 3:下
+      let startX, startY;
+
+      // 定义生成边界 (视野外一点点)
+      switch(side) {
+        case 0: startX = -60; startY = (Math.random() - 0.5) * 30; break;
+        case 1: startX = 60; startY = (Math.random() - 0.5) * 30; break;
+        case 2: startX = (Math.random() - 0.5) * 60; startY = 35; break;
+        case 3: startX = (Math.random() - 0.5) * 60; startY = -35; break;
+      }
+      this.mesh.position.set(startX, startY, 0);
+
+      // ★ 2. 强制飞向中心 (X: -10~10, Y: -5~5) ★
+      const targetX = (Math.random() - 0.5) * 20;
+      const targetY = (Math.random() - 0.5) * 10;
+      const direction = new THREE.Vector3(targetX - startX, targetY - startY, 0).normalize();
+
+      // ★ 3. 随机速度 (快慢不一) ★
+      // 慢的 0.15，快的 0.4 (差异化明显)
+      const randomSpeed = 0.15 + Math.random() * 0.25;
+
+      this.velocity = direction.multiplyScalar(randomSpeed);
+
+      this.active = true; this.color = color;
+      scene.add(this.mesh);
+    }
+    update() {
+      if(!this.active) return;
+      // 无重力，直线飞行
+      this.mesh.position.add(this.velocity);
+      this.mesh.rotation.x = Math.PI / 2;
+      this.mesh.rotation.z += 0.05;
+
+      // 飞太远移除 (防止内存泄漏)
+      if(Math.abs(this.mesh.position.x) > 70 || Math.abs(this.mesh.position.y) > 40) {
+        this.remove();
+      }
+    }
+    remove() { this.active = false; scene.remove(this.mesh); }
+  }
+
+  const partGeo = new THREE.TetrahedronGeometry(0.8);
+  class Explosion {
+    constructor(pos, color, isMiss = false) {
+      this.shards = [];
+      const count = isMiss ? 4 : 8;
+      for(let i=0; i<count; i++) {
+        const m = new THREE.Mesh(partGeo, new THREE.MeshBasicMaterial({color:color, transparent:true, opacity: isMiss?0.5:1}));
+        m.position.copy(pos); if(isMiss) m.scale.setScalar(0.5);
+        const vel = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(isMiss?0.5:1.5);
+        this.shards.push({m, vel, life: 1.0}); scene.add(m);
+      }
+      this.active = true;
+    }
+    update() {
+      let cnt=0;
+      this.shards.forEach(s=>{ if(s.life>0){s.m.position.add(s.vel);s.life-=0.05;s.m.scale.setScalar(s.life);cnt++;}else if(s.m.parent)scene.remove(s.m); });
+      if(cnt===0) this.active = false;
+    }
+  }
+
+  function updateAiming() {
+    if(!isPistol) return { pos: null, locked: null };
+    // ★ 0.7 高跟手度 ★
+    currentAim.lerp(targetAim, AIM_SMOOTH_FACTOR);
+
+    const vec = new THREE.Vector3(currentAim.x, currentAim.y, 0.5);
+    vec.unproject(camera);
+    const dir = vec.sub(camera.position).normalize();
+    const distance = -camera.position.z / dir.z;
+    const laserEndPos = camera.position.clone().add(dir.multiplyScalar(distance));
+
+    const positions = laserLine.geometry.attributes.position.array;
+    positions[3] = laserEndPos.x; positions[4] = laserEndPos.y; positions[5] = laserEndPos.z;
+    laserLine.geometry.attributes.position.needsUpdate = true;
+
+    raycaster.setFromCamera(currentAim, camera);
+    let locked = null;
+    for(let d of discs) {
+      // 加大磁吸范围 (80 -> 100)
+      if(d.active && raycaster.ray.distanceSqToPoint(d.mesh.position) < 100) { locked = d; break; }
+    }
+
+    const screenX = (currentAim.x + 1) / 2 * 100;
+    const screenY = (-currentAim.y + 1) / 2 * 100;
+    crosshair.style.left = screenX + '%'; crosshair.style.top = screenY + '%';
+    if(locked) crosshair.classList.add('locked'); else crosshair.classList.remove('locked');
+    return { pos: laserEndPos, locked: locked };
+  }
+
+  function fire() {
+    if(!canShoot) return;
+    crosshair.style.transform = "translate(-50%, -50%) scale(1.5)";
+    setTimeout(() => { crosshair.style.transform = "translate(-50%, -50%) scale(1.0)"; }, 80);
+
+    Sound.shoot();
+    const aimResult = updateAiming();
+
+    if (aimResult.locked) {
+      const target = aimResult.locked;
+      spawnFloatingText("HIT! +100", target.mesh.position, 'hit');
+      particles.push(new Explosion(target.mesh.position, target.color, false));
+      target.remove();
+      Sound.hit();
+      score += 100; scoreEl.innerText = score;
+    } else if (aimResult.pos) {
+      spawnFloatingText("MISS", aimResult.pos, 'miss');
+      particles.push(new Explosion(aimResult.pos, 0xaaaaaa, true));
+      Sound.miss();
+    }
+    // 冷却 100ms
+    canShoot = false; setTimeout(() => { canShoot = true; }, 100);
+  }
+
+  function dist(p1, p2) { return Math.sqrt(Math.pow(p1.x-p2.x,2) + Math.pow(p1.y-p2.y,2)); }
+
+  function onResults(results) {
+    if (!gameReady) {
+      gameReady = true;
+      loaderMask.style.opacity = 0;
+      setTimeout(() => { loaderMask.style.display = 'none'; }, 500);
+    }
+    canvasElement.width = 320; canvasElement.height = 240;
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const lm = results.multiHandLandmarks[0];
+      const wrist = lm[0], thumb = lm[4], indexBase = lm[5], index = lm[8];
+
+      if (dist(index, wrist) > 0.18) {
+        if (!isPistol) { isPistol = true; crosshair.style.display = 'block'; }
+        drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
+        const aimX = (1 - index.x); const aimY = index.y;
+        targetAim.set((aimX * 2) - 1, -(aimY * 2) + 1);
+
+        const dTrigger = dist(thumb, indexBase);
+        if (triggerState === 'released') {
+          // ★ 高灵敏扳机：0.10 ★
+          if (dTrigger < TRIGGER_PRESS_THRESHOLD) {
+            fire();
+            triggerState = 'pressed';
+            drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#FF0000', lineWidth: 6});
+          }
+        } else if (triggerState === 'pressed') {
+          if (dTrigger > TRIGGER_RELEASE_THRESHOLD) { triggerState = 'released'; }
+        }
+      }
+    } else {
+      if (isPistol) { isPistol = false; crosshair.style.display = 'none'; }
+    }
+    canvasCtx.restore();
+  }
+
+  startSystem();
+
+  // ★ 生成循环：保持同屏 4 个 ★
+  setInterval(() => {
+    // 只要少于 MAX_DISCS，就立刻补充
+    // 并且加一点随机延迟，避免同时出现太整齐
+    if (discs.filter(d => d.active).length < MAX_DISCS) {
+      discs.push(new Disc());
+    }
+  }, spawnCheckRate);
+
+  function animate() {
+    requestAnimationFrame(animate);
+    updateAiming();
+    discs.forEach(d=>d.update());
+    particles.forEach(p=>p.update());
+    renderer.render(scene, camera);
+  }
+  animate();
+  window.addEventListener('resize', () => { camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+</script>
+</body>
+</html>

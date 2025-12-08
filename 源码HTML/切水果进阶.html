@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>Emoji Ninja: 手势启动版</title>
+    <style>
+        body {
+            margin: 0; overflow: hidden;
+            background: radial-gradient(circle at center, #1a0b2e 0%, #000000 100%);
+            user-select: none; font-family: 'Segoe UI', sans-serif;
+        }
+
+        /* 加载遮罩 */
+        #loader-mask {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: #fff; transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 60px; height: 60px; border: 6px solid #444; border-top: 6px solid #00ff88;
+            border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loader-text { font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #00ff88; }
+        #network-panel { margin-top: 20px; text-align: center; }
+        .retry-btn {
+            background: linear-gradient(45deg, #ff0055, #ff5500);
+            border: none; padding: 10px 25px; color: white; border-radius: 20px;
+            font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px;
+        }
+
+        /* ★ 开始菜单 UI ★ */
+        #start-ui {
+            position: absolute; top: 20%; left: 0; width: 100%; text-align: center;
+            pointer-events: none; z-index: 50; transition: opacity 0.3s;
+            display: none; /* 初始隐藏，等加载完显示 */
+        }
+        #start-title {
+            font-size: 80px; font-weight: 900; color: #fff;
+            text-shadow: 0 0 20px #00ffcc; font-family: 'Arial Black', sans-serif;
+            margin-bottom: 10px;
+        }
+        #start-hint {
+            font-size: 24px; color: #aaa; background: rgba(0,0,0,0.5);
+            display: inline-block; padding: 10px 30px; border-radius: 30px;
+            border: 1px solid rgba(255,255,255,0.3);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 0.8; } }
+
+        /* 游戏 UI */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; opacity: 0; transition: opacity 0.5s; }
+
+        #score-board {
+            position: absolute; top: 20px; left: 30px;
+            font-size: 60px; font-weight: 900; color: #eee;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.5); font-family: 'Arial Black', sans-serif;
+            background: rgba(255,255,255,0.05); padding: 5px 25px; border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #combo-text {
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) rotate(-10deg);
+            font-size: 100px; font-weight: 900;
+            background: linear-gradient(to bottom, #ffeb3b, #ff9800);
+            -webkit-background-clip: text; color: transparent;
+            text-shadow: 0px 5px 15px rgba(0,0,0,0.3);
+            opacity: 0; transition: transform 0.1s; pointer-events: none;
+        }
+
+        .shake-screen { animation: shake 0.5s; }
+        @keyframes shake { 0% { transform: translate(1px, 1px); } 50% { transform: translate(-1px, 2px); } 100% { transform: translate(1px, -1px); } }
+
+        .floating-text {
+            position: absolute; font-weight: bold; font-size: 40px;
+            pointer-events: none; animation: floatUp 0.8s forwards;
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.5); font-family: 'Arial', sans-serif;
+        }
+        @keyframes floatUp { 0% { transform: translate(-50%, -50%) scale(0.5); opacity: 1; } 100% { transform: translate(-50%, -150%) scale(1.5); opacity: 0; } }
+
+        #input_video {
+            position: absolute; bottom: 20px; right: 20px; width: 180px; height: 135px; z-index: 10;
+            transform: scaleX(-1); border: 2px solid rgba(255,255,255,0.2); border-radius: 12px;
+            opacity: 0.7; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #output_canvas { position: absolute; bottom: 20px; right: 20px; width: 180px; height: 135px; z-index: 11; transform: scaleX(-1); pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<!-- 1. 加载页 -->
+<div id="loader-mask">
+    <div class="spinner" id="spinner"></div>
+    <div id="loader-text">资源下载中...</div>
+    <div style="color:#aaa; font-size:12px; margin-top:5px">首次加载需 30秒</div>
+    <div id="network-panel">
+        <p id="net-status" style="color:#ffaaaa; font-size:14px; display:none">加载卡顿？</p>
+        <button class="retry-btn" onclick="switchSource()">📡 切换线路</button>
+    </div>
+</div>
+
+<!-- 2. 开始菜单 -->
+<div id="start-ui">
+    <div id="start-title">EMOJI NINJA</div>
+    <div id="start-hint">🔪 挥动食指 · 切开地球 · 开始游戏</div>
+</div>
+
+<!-- 3. 游戏界面 -->
+<div id="ui-layer">
+    <div id="score-board">0</div>
+    <div id="combo-text">COMBO!</div>
+</div>
+
+<video id="input_video" autoplay playsinline></video>
+<canvas id="output_canvas"></canvas>
+
+<!-- 本地库 -->
+<script src="./libs/control_utils.js"></script>
+<script src="./libs/drawing_utils.js"></script>
+<script src="./libs/hands.js"></script>
+<script src="./libs/three.min.js"></script>
+
+<script>
+
+  // DOM
+  const loaderMask = document.getElementById('loader-mask');
+  const loaderText = document.getElementById('loader-text');
+  const netStatus = document.getElementById('net-status');
+  const startUI = document.getElementById('start-ui');
+  const uiLayer = document.getElementById('ui-layer');
+  const videoElement = document.getElementById('input_video');
+  const canvasElement = document.getElementById('output_canvas');
+  const canvasCtx = canvasElement.getContext('2d');
+  const scoreEl = document.getElementById('score-board');
+  const comboEl = document.getElementById('combo-text');
+
+  // 状态变量
+  let hands;
+  let isProcessing = false;
+  let systemReady = false; // 系统准备好（模型加载完）
+  let gameActive = false;  // 游戏进行中
+  let score = 0;
+  let retryCount = 0;
+
+  // 切换线路（本地版不需要）
+  window.switchSource = function() {
+    loaderText.innerText = "重新加载...";
+    location.reload();
+  };
+
+  setTimeout(() => { if(!systemReady) netStatus.style.display = 'block'; }, 8000);
+
+  // ==========================================
+  // 1. 系统启动
+  // ==========================================
+  async function startSystem() {
+    try {
+      loaderText.innerText = "请求摄像头...";
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      videoElement.srcObject = stream;
+      videoElement.onloadedmetadata = () => {
+        videoElement.play();
+        loaderText.innerText = "下载 AI 模型...";
+        initMediaPipe();
+      };
+    } catch (err) { loaderText.innerText = "❌ 摄像头失败: 请使用HTTPS"; }
+  }
+
+  function initMediaPipe() {
+    try {
+      // 使用本地库
+      hands = new Hands({locateFile: (file) => `./libs/${file}`});
+      hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+      hands.onResults(onResults);
+      requestAnimationFrame(processVideoLoop);
+    } catch (err) { loaderText.innerText = "❌ 引擎错误"; }
+  }
+
+  async function processVideoLoop() {
+    if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+      if (!isProcessing) {
+        isProcessing = true;
+        try { await hands.send({image: videoElement}); retryCount = 0; }
+        catch (e) {
+          retryCount++;
+          if(retryCount > 100) { netStatus.style.display = 'block'; return; }
+        } finally { isProcessing = false; }
+      }
+    }
+    if (retryCount <= 100) requestAnimationFrame(processVideoLoop);
+  }
+
+  // ==========================================
+  // 2. 场景与资源
+  // ==========================================
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  document.body.addEventListener('click', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); });
+
+  const Sound = {
+    slice: () => playTone('sawtooth', 600, 100, 0.1, 0.2),
+    splat: () => playTone('triangle', 600, 1200, 0.1, 0.3),
+    start: () => { playTone('square', 200, 800, 0.3, 0.5); playTone('sine', 800, 1500, 0.5, 0.5); },
+    bomb: () => { playTone('sawtooth', 100, 20, 0.5, 0.8); playTone('square', 50, 10, 0.5, 0.8); },
+    spawn: () => playTone('triangle', 300, 500, 0.1, 0.05)
+  };
+  function playTone(type, start, end, dur, vol) {
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(start, audioCtx.currentTime);
+    osc.frequency.linearRampToValueAtTime(end, audioCtx.currentTime + dur);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + dur);
+    osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + dur + 0.1);
+  }
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.z = 25;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  dirLight.position.set(5, 10, 7); scene.add(dirLight);
+  const fillLight = new THREE.DirectionalLight(0xccccff, 0.5);
+  fillLight.position.set(-5, 0, 5); scene.add(fillLight);
+
+  // 刀光
+  const TRAIL_LENGTH = 15; const trailPositions = [];
+  for(let i=0; i<TRAIL_LENGTH; i++) trailPositions.push(new THREE.Vector3(0,0,0));
+  const trailGeo = new THREE.BufferGeometry();
+  const trailVertices = new Float32Array(TRAIL_LENGTH * 2 * 3);
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(trailVertices, 3));
+  const trailMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, side: THREE.DoubleSide, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending });
+  const trailMesh = new THREE.Mesh(trailGeo, trailMat); trailMesh.frustumCulled = false; scene.add(trailMesh);
+
+  function updateBlade(pos) {
+    trailPositions.shift(); trailPositions.push(pos.clone());
+    const positions = trailMesh.geometry.attributes.position.array;
+    for (let i = 0; i < TRAIL_LENGTH; i++) {
+      const p = trailPositions[i]; const width = (i / TRAIL_LENGTH) * 0.8;
+      positions[i*6+0] = p.x-width; positions[i*6+1] = p.y-width; positions[i*6+2] = p.z;
+      positions[i*6+3] = p.x+width; positions[i*6+4] = p.y+width; positions[i*6+5] = p.z;
+    }
+    trailMesh.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // 纹理生成
+  function createEmojiTexture(emoji) {
+    const cvs = document.createElement('canvas'); cvs.width = 256; cvs.height = 256;
+    const ctx = cvs.getContext('2d'); ctx.font = '200px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(emoji, 128, 128);
+    return new THREE.CanvasTexture(cvs);
+  }
+  const textures = { melon: createEmojiTexture('🍉'), orange: createEmojiTexture('🍊'), kiwi: createEmojiTexture('🥝'), poop: createEmojiTexture('💩'), clown: createEmojiTexture('🤡'), bomb: createEmojiTexture('💣'), earth: createEmojiTexture('🌍') };
+
+  // ==========================================
+  // 3. 开始按钮逻辑 (Start Orb)
+  // ==========================================
+  const startOrbGeo = new THREE.SphereGeometry(3.5, 32, 32);
+  const startOrbMat = new THREE.MeshStandardMaterial({
+    map: textures.earth, roughness: 0.3, metalness: 0.1
+  });
+  const startOrb = new THREE.Mesh(startOrbGeo, startOrbMat);
+  startOrb.position.set(0, 0, 0);
+  scene.add(startOrb); // 初始添加
+
+  // ==========================================
+  // 4. 游戏物体逻辑
+  // ==========================================
+  const items = []; const particles = [];
+  const planeGeo = new THREE.PlaneGeometry(5.5, 5.5);
+
+  class GameItem {
+    constructor() {
+      const rand = Math.random();
+      let type, tex, color, scoreVal;
+      if (rand < 0.05) { type = 'bomb'; tex = textures.bomb; color = 0xff0000; scoreVal = -500; }
+      else if (rand < 0.20) { type = 'meme'; tex = Math.random()>0.5?textures.poop:textures.clown; color = 0xff00ff; scoreVal = 200; }
+      else { type = 'fruit'; const r = Math.random(); tex = r<0.33?textures.melon:(r<0.66?textures.orange:textures.kiwi); color = 0x00ff00; scoreVal = 100; }
+
+      const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.1 });
+      this.mesh = new THREE.Mesh(planeGeo, mat);
+      const startX = (Math.random() - 0.5) * 25;
+      this.mesh.position.set(startX, -25, 0);
+      const vy = 0.6 + Math.random() * 0.3;
+      this.velocity = new THREE.Vector3(-startX * 0.02 + (Math.random()-0.5) * 0.2, vy, 0);
+      this.rotSpeed = (Math.random()-0.5) * 0.2;
+      this.type = type; this.color = color; this.scoreVal = scoreVal; this.active = true;
+      scene.add(this.mesh); Sound.spawn();
+    }
+    update() {
+      if(!this.active) return;
+      this.velocity.y -= 0.008; this.mesh.position.add(this.velocity); this.mesh.rotation.z += this.rotSpeed;
+      this.mesh.rotation.x = Math.sin(Date.now() * 0.001) * 0.2;
+      if(this.mesh.position.y < -30) this.remove();
+    }
+    remove() { this.active = false; scene.remove(this.mesh); }
+  }
+
+  const splashGeo = new THREE.PlaneGeometry(0.8, 0.8);
+  class Splash {
+    constructor(pos, color) {
+      this.shards = [];
+      for(let i=0; i<8; i++) {
+        const m = new THREE.Mesh(splashGeo, new THREE.MeshStandardMaterial({ color: color, transparent: true, side: THREE.DoubleSide }));
+        m.position.copy(pos); m.rotation.z = Math.random() * Math.PI;
+        const vel = new THREE.Vector3((Math.random()-0.5), (Math.random()-0.5), 0).multiplyScalar(0.8);
+        this.shards.push({m, vel, life: 1.0}); scene.add(m);
+      }
+      this.active = true;
+    }
+    update() {
+      let cnt=0;
+      this.shards.forEach(s => { if(s.life > 0) { s.m.position.add(s.vel); s.life -= 0.04; s.m.scale.setScalar(s.life); s.m.material.opacity = s.life; cnt++; } else if(s.m.parent) scene.remove(s.m); });
+      if(cnt===0) this.active = false;
+    }
+  }
+
+  function spawnFloatingText(text, pos3D, isBomb) {
+    const vec = pos3D.clone(); vec.project(camera);
+    const x = (vec.x * 0.5 + 0.5) * window.innerWidth; const y = (-(vec.y * 0.5) + 0.5) * window.innerHeight;
+    const el = document.createElement('div'); el.innerText = text; el.className = 'floating-text';
+    el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.color = isBomb ? '#ff0000' : '#ffff00';
+    uiLayer.appendChild(el); setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 600);
+  }
+
+  // ==========================================
+  // 5. 核心循环：区分 菜单/游戏
+  // ==========================================
+  const fingerPos = new THREE.Vector3(0, -20, 0); const lastFingerPos = new THREE.Vector3(0, -20, 0);
+  let comboCount = 0; let lastHitTime = 0;
+
+  function checkSlicing() {
+    const speed = fingerPos.distanceTo(lastFingerPos);
+
+    // 挥刀检测
+    if (speed > 0.4) {
+
+      // ★ 菜单逻辑 ★
+      if (!gameActive && startOrb.visible) {
+        if (startOrb.position.distanceTo(fingerPos) < 4.5) {
+          // 切到开始球了！
+          startGame();
+        }
+      }
+
+      // ★ 游戏逻辑 ★
+      if (gameActive) {
+        for(let item of items) {
+          if(item.active) {
+            if(item.mesh.position.distanceTo(fingerPos) < 4.0) {
+              if (item.type === 'bomb') {
+                document.body.classList.add('shake-screen'); setTimeout(()=>document.body.classList.remove('shake-screen'), 500);
+                Sound.bomb(); spawnFloatingText("BOOM!!!", item.mesh.position, true);
+                score = Math.max(0, score - 500); scoreEl.style.color = 'red'; setTimeout(()=>scoreEl.style.color = 'white', 200);
+              } else {
+                Sound.splat(); particles.push(new Splash(item.mesh.position, item.color));
+                spawnFloatingText(item.type==='meme'?"wow!":"+100", item.mesh.position, false);
+                score += item.scoreVal;
+                if(Date.now() - lastHitTime < 400) comboCount++; else comboCount = 1;
+                lastHitTime = Date.now();
+              }
+              item.remove(); scoreEl.innerText = score;
+            }
+          }
+        }
+        if(comboCount > 2) {
+          comboEl.innerText = comboCount + " COMBO!"; comboEl.style.opacity = 1;
+          comboEl.style.transform = `translate(-50%, -50%) rotate(${Math.random()*20-10}deg) scale(${1 + comboCount*0.1})`;
+          setTimeout(() => { comboEl.style.opacity = 0; }, 500);
+        }
+      }
+    }
+    lastFingerPos.copy(fingerPos);
+  }
+
+  // 开始游戏
+  function startGame() {
+    gameActive = true;
+    Sound.start();
+
+    // 隐藏开始UI
+    startUI.style.opacity = 0;
+    setTimeout(() => { startUI.style.display = 'none'; }, 300);
+
+    // 隐藏开始球
+    startOrb.visible = false;
+
+    // 显示游戏UI
+    uiLayer.style.opacity = 1;
+
+    // 炸出特效
+    particles.push(new Splash(startOrb.position, 0x00ffcc));
+    spawnFloatingText("GO!", startOrb.position, false);
+  }
+
+  function onResults(results) {
+    if (!systemReady) {
+      systemReady = true;
+      loaderMask.style.display = 'none';
+      startUI.style.display = 'block'; // 显示菜单文字
+    }
+
+    // 1. 设置画布尺寸匹配视频，确保绘制位置准确
+    canvasElement.width = videoElement.videoWidth;
+    canvasElement.height = videoElement.videoHeight;
+
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+
+      // ★★★ 绘制骨骼逻辑 START ★★★
+      for (const landmarks of results.multiHandLandmarks) {
+        // 绘制连线
+        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00ff88', lineWidth: 5});
+        // 绘制关键点
+        drawLandmarks(canvasCtx, landmarks, {color: '#ff0000', lineWidth: 2});
+      }
+      // ★★★ 绘制骨骼逻辑 END ★★★
+
+      const indexTip = results.multiHandLandmarks[0][8];
+      const ndcX = (1 - indexTip.x) * 2 - 1; const ndcY = -(indexTip.y * 2 - 1);
+      const vec = new THREE.Vector3(ndcX, ndcY, 0.5); vec.unproject(camera);
+      const dir = vec.sub(camera.position).normalize(); const dist = -camera.position.z / dir.z;
+      const pos = camera.position.clone().add(dir.multiplyScalar(dist));
+      fingerPos.lerp(pos, 0.5);
+    }
+    canvasCtx.restore();
+  }
+
+  startSystem();
+
+  setInterval(() => {
+    if(gameActive && items.filter(i => i.active).length < 6 && Math.random() > 0.2) {
+      items.push(new GameItem());
+    }
+  }, 400);
+
+  function animate() {
+    requestAnimationFrame(animate);
+    updateBlade(fingerPos); checkSlicing();
+    items.forEach(i => i.update()); particles.forEach(p => p.update());
+
+    // 菜单状态：旋转地球
+    if (!gameActive) {
+      startOrb.rotation.y += 0.02;
+      startOrb.rotation.x = Math.sin(Date.now()*0.001) * 0.2;
+      // 呼吸效果
+      const scale = 1 + Math.sin(Date.now()*0.003) * 0.1;
+      startOrb.scale.set(scale, scale, scale);
+    }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+  window.addEventListener('resize', () => {
+    camera.aspect=window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+</script>
+</body>
+</html>
