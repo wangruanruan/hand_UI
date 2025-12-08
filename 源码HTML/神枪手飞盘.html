@@ -292,11 +292,11 @@
     remove() { this.active = false; scene.remove(this.mesh); }
   }
 
-  const partGeo = new THREE.TetrahedronGeometry(0.8);
+  const partGeo = new THREE.TetrahedronGeometry(0.8, 0); // 简化几何体
   class Explosion {
     constructor(pos, color, isMiss = false) {
       this.shards = [];
-      const count = isMiss ? 4 : 8;
+      const count = isMiss ? 2 : 4; // 减少碎片数量
       for(let i=0; i<count; i++) {
         const m = new THREE.Mesh(partGeo, new THREE.MeshBasicMaterial({color:color, transparent:true, opacity: isMiss?0.5:1}));
         m.position.copy(pos); if(isMiss) m.scale.setScalar(0.5);
@@ -421,6 +421,8 @@
     updateAiming();
     discs.forEach(d=>d.update());
     particles.forEach(p=>p.update());
+    // 清理已完成的粒子
+    particles = particles.filter(p => p.active);
     renderer.render(scene, camera);
   }
   animate();
