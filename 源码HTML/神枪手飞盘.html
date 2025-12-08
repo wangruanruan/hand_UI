@@ -226,7 +226,8 @@
   scene.fog = new THREE.FogExp2(0x0a0a10, 0.015);
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
   camera.position.set(0, 0, 40);
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: false }); // 关闭抗锯齿
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 限制像素比
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
