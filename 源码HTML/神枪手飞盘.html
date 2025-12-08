@@ -270,6 +270,8 @@
     isPlaying = true;
     score = 0;
     timeLeft = 60;
+    triggerState = 'released';  // 重置扳机状态
+    canShoot = true;            // 重置射击冷却
     scoreEl.textContent = '0';
     timerEl.textContent = '60';
     timerEl.className = '';
