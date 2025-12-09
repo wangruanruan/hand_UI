@@ -116,6 +116,7 @@
 <canvas id="output_canvas"></canvas>
 
 <!-- 本地库 -->
+<script src="./libs/camera_utils.js"></script>
 <script src="./libs/control_utils.js"></script>
 <script src="./libs/drawing_utils.js"></script>
 <script src="./libs/hands.js"></script>
@@ -137,11 +138,10 @@
 
   // 状态变量
   let hands;
-  let isProcessing = false;
+  let cameraObj;
   let systemReady = false; // 系统准备好（模型加载完）
   let gameActive = false;  // 游戏进行中
   let score = 0;
-  let retryCount = 0;
 
   // 切换线路（本地版不需要）
   window.switchSource = function() {
@@ -155,40 +155,26 @@
   // 1. 系统启动
   // ==========================================
   async function startSystem() {
+    loaderText.innerText = "下载 AI 模型...";
     try {
-      loaderText.innerText = "请求摄像头...";
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-      videoElement.srcObject = stream;
-      videoElement.onloadedmetadata = () => {
-        videoElement.play();
-        loaderText.innerText = "下载 AI 模型...";
-        initMediaPipe();
-      };
-    } catch (err) { loaderText.innerText = "❌ 摄像头失败: 请使用HTTPS"; }
+      await initMediaPipe();
+    } catch (err) { loaderText.innerText = "❌ 启动错误: " + err.message; }
   }
 
-  function initMediaPipe() {
-    try {
-      // 使用本地库
-      hands = new Hands({locateFile: (file) => `./libs/${file}`});
-      hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-      hands.onResults(onResults);
-      requestAnimationFrame(processVideoLoop);
-    } catch (err) { loaderText.innerText = "❌ 引擎错误"; }
-  }
+  async function initMediaPipe() {
+    // 使用本地库
+    hands = new Hands({locateFile: (file) => `./libs/${file}`});
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    hands.onResults(onResults);
 
-  async function processVideoLoop() {
-    if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
-      if (!isProcessing) {
-        isProcessing = true;
-        try { await hands.send({image: videoElement}); retryCount = 0; }
-        catch (e) {
-          retryCount++;
-          if(retryCount > 100) { netStatus.style.display = 'block'; return; }
-        } finally { isProcessing = false; }
-      }
-    }
-    if (retryCount <= 100) requestAnimationFrame(processVideoLoop);
+    // 使用 Camera 类自动管理帧率
+    cameraObj = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({image: videoElement}); },
+      width: 640,
+      height: 480,
+      facingMode: 'user'
+    });
+    await cameraObj.start();
   }
 
   // ==========================================
