@@ -183,9 +183,8 @@
 
   // 变量
   let hands;
-  let isProcessing = false;
+  let cameraObj;
   let gameReady = false;
-  let retryCount = 0;
 
   let score = 0;
   let isPistol = false;
@@ -350,54 +349,33 @@
   }
 
   async function startSystem() {
+    loaderText.innerText = "下载 AI 核心...";
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-      videoElement.srcObject = stream;
-      videoElement.onloadedmetadata = () => {
-        videoElement.play();
-        loaderText.innerText = "下载 AI 核心...";
-        initMediaPipe();
-      };
-    } catch (err) { fatalError("摄像头错误: " + err.message); }
+      await initMediaPipe();
+    } catch (err) { fatalError("启动错误: " + err.message); }
   }
 
-  function initMediaPipe() {
-    try {
-      // 使用本地库
-      hands = new Hands({locateFile: (file) => `./libs/${file}`});
+  async function initMediaPipe() {
+    // 使用本地库
+    hands = new Hands({locateFile: (file) => `./libs/${file}`});
 
-      hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 0,  // Lite模型，性能更好
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-      });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0,  // Lite模型，性能更好
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
 
-      hands.onResults(onResults);
-      requestAnimationFrame(processVideoLoop);
+    hands.onResults(onResults);
 
-    } catch (err) { fatalError("AI 引擎错误: " + err.message); }
-  }
-
-  let lastAIRunTime = 0;
-  async function processVideoLoop(timestamp) {
-    if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
-      // 30FPS 采样率
-      if (!isProcessing && (timestamp - lastAIRunTime) > 33) {
-        isProcessing = true;
-        lastAIRunTime = timestamp;
-        try {
-          await hands.send({image: videoElement});
-          retryCount = 0;
-        } catch (e) {
-          retryCount++;
-          if (retryCount > 100) return;
-        } finally {
-          isProcessing = false;
-        }
-      }
-    }
-    requestAnimationFrame(processVideoLoop);
+    // 使用 Camera 类自动管理帧率（和魔法阵一样）
+    cameraObj = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({image: videoElement}); },
+      width: 640,
+      height: 480,
+      facingMode: 'user'
+    });
+    await cameraObj.start();
   }
 
   // ==========================================
