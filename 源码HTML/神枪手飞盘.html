@@ -396,11 +396,11 @@
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0a10);
-  scene.fog = new THREE.FogExp2(0x0a0a10, 0.015);
+  // scene.fog = new THREE.FogExp2(0x0a0a10, 0.015); // 关闭雾效提升性能
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
   camera.position.set(0, 0, 40);
   const renderer = new THREE.WebGLRenderer({ antialias: false }); // 关闭抗锯齿
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // 限制像素比
+  renderer.setPixelRatio(1); // 固定像素比为1，提升性能
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
   scene.add(new THREE.AmbientLight(0xffffff, 0.4));
@@ -408,18 +408,18 @@
   dirLight.position.set(-20, 20, 10); scene.add(dirLight);
 
   const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -20, 30), new THREE.Vector3(0, 0, 0)]);
-  const laserMat = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.3 });
+  const laserMat = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
   const laserLine = new THREE.Line(laserGeo, laserMat);
   scene.add(laserLine);
 
   // 飞盘类
-  const discGeo = new THREE.CylinderGeometry(3, 3, 0.5, 32);
-  const ringGeo = new THREE.TorusGeometry(3.5, 0.2, 8, 32);
+  const discGeo = new THREE.CylinderGeometry(3, 3, 0.5, 16); // 16段，减少顶点
+  const ringGeo = new THREE.TorusGeometry(3.5, 0.2, 6, 16); // 简化光环
 
   class Disc {
     constructor() {
       const color = new THREE.Color().setHSL(Math.random(), 0.8, 0.5);
-      const mat = new THREE.MeshPhongMaterial({ color: color, emissive: color, emissiveIntensity: 0.4 });
+      const mat = new THREE.MeshBasicMaterial({ color: color }); // 用BasicMaterial省去光照计算
       this.mesh = new THREE.Mesh(discGeo, mat);
       const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
       ring.rotation.x = Math.PI/2; this.mesh.add(ring);
@@ -572,12 +572,15 @@
         const dTrigger = dist(thumb, indexBase);
         document.getElementById('debug-info').textContent = `dTrigger: ${dTrigger.toFixed(3)} | state: ${triggerState} | threshold: ${TRIGGER_PRESS_THRESHOLD}`;
         if (triggerState === 'released') {
+          laserMat.color.setHex(0x00ff00); // 绿色 - 释放状态
           if (dTrigger < TRIGGER_PRESS_THRESHOLD) {
             fire();
             triggerState = 'pressed';
+            laserMat.color.setHex(0xffff00); // 黄色 - 击发状态
             drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#FF0000', lineWidth: 6});
           }
         } else if (triggerState === 'pressed') {
+          laserMat.color.setHex(0xffff00); // 黄色 - 保持击发状态
           if (dTrigger > TRIGGER_RELEASE_THRESHOLD) { triggerState = 'released'; }
         }
       }
