@@ -350,15 +350,19 @@
   }
 
   async function startSystem() {
-    loaderText.innerText = "下载 AI 核心...";
     try {
       await initMediaPipe();
     } catch (err) { fatalError("启动错误: " + err.message); }
   }
 
   async function initMediaPipe() {
+    loaderText.innerText = "加载 AI 模型...";
+    
     // 使用本地库
-    hands = new Hands({locateFile: (file) => `./libs/${file}`});
+    hands = new Hands({locateFile: (file) => {
+      console.log('Loading:', file);
+      return `./libs/${file}`;
+    }});
 
     hands.setOptions({
       maxNumHands: 1,
@@ -368,6 +372,8 @@
     });
 
     hands.onResults(onResults);
+    
+    loaderText.innerText = "请求摄像头权限...";
 
     // 使用 Camera 类自动管理帧率（和魔法阵一样）
     cameraObj = new Camera(videoElement, {
@@ -377,6 +383,8 @@
       facingMode: 'user'
     });
     await cameraObj.start();
+    
+    loaderText.innerText = "启动中...";
   }
 
   // ==========================================
