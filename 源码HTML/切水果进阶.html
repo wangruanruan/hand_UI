@@ -32,7 +32,7 @@
 
         /* ★ 开始菜单 UI ★ */
         #start-ui {
-            position: absolute; top: 20%; left: 0; width: 100%; text-align: center;
+            position: absolute; top: 15%; left: 0; width: 100%; text-align: center;
             pointer-events: none; z-index: 50; transition: opacity 0.3s;
             display: none; /* 初始隐藏，等加载完显示 */
         }
@@ -48,6 +48,40 @@
             animation: pulse 1.5s infinite;
         }
         @keyframes pulse { 0% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 0.8; } }
+        
+        /* 排行榜 */
+        .leaderboard {
+            display: inline-block; background: rgba(0,0,0,0.6); border: 2px solid #00ffcc; border-radius: 15px;
+            padding: 15px 25px; margin-top: 20px; text-align: left;
+        }
+        .leaderboard h3 { color: #00ffcc; margin: 0 0 10px 0; text-align: center; font-size: 18px; }
+        .leaderboard ol { margin: 0; padding-left: 25px; color: #fff; font-size: 16px; line-height: 1.8; }
+        .leaderboard li { text-shadow: 0 0 5px #00ffcc; }
+        
+        /* 倒计时 */
+        #timer { 
+            position: absolute; top: 20px; right: 30px; 
+            color: #00ffcc; font-size: 48px; font-family: 'Arial Black', sans-serif;
+            text-shadow: 0 0 15px #00ffcc;
+        }
+        #timer.warning { color: #ff0; text-shadow: 0 0 15px #ff0; }
+        #timer.danger { color: #f00; text-shadow: 0 0 15px #f00; }
+        
+        /* 结束界面 */
+        #end-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 100;
+            display: none; flex-direction: column; justify-content: center; align-items: center;
+        }
+        #end-screen.show { display: flex; }
+        #final-score { color: #00ffcc; font-size: 80px; font-family: 'Arial Black', sans-serif; text-shadow: 0 0 30px #00ffcc; }
+        #end-msg { color: #fff; font-size: 24px; margin: 20px 0 40px 0; }
+        #restart-btn {
+            background: linear-gradient(135deg, #00ffcc, #00aa88); border: none; color: #000;
+            font-size: 24px; font-weight: bold; padding: 15px 50px; border-radius: 50px;
+            cursor: pointer; box-shadow: 0 0 30px rgba(0,255,204,0.5);
+        }
+        #restart-btn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(0,255,204,0.8); }
 
         /* 游戏 UI */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; opacity: 0; transition: opacity 0.5s; }
@@ -103,12 +137,28 @@
 <!-- 2. 开始菜单 -->
 <div id="start-ui">
     <div id="start-title">EMOJI NINJA</div>
-    <div id="start-hint">🔪 挥动食指 · 切开地球 · 开始游戏</div>
+    <div id="start-hint">🔪 挥动食指 · 切开地球 · 30秒挑战</div>
+    <div class="leaderboard">
+        <h3>🏆 排行榜</h3>
+        <ol id="leaderboard-list">
+            <li>---</li>
+            <li>---</li>
+            <li>---</li>
+        </ol>
+    </div>
+</div>
+
+<!-- 结束界面 -->
+<div id="end-screen">
+    <div id="final-score">0</div>
+    <div id="end-msg">游戏结束</div>
+    <button id="restart-btn">再来一局</button>
 </div>
 
 <!-- 3. 游戏界面 -->
 <div id="ui-layer">
     <div id="score-board">0</div>
+    <div id="timer">30</div>
     <div id="combo-text">COMBO!</div>
 </div>
 
@@ -135,6 +185,12 @@
   const canvasCtx = canvasElement.getContext('2d');
   const scoreEl = document.getElementById('score-board');
   const comboEl = document.getElementById('combo-text');
+  const timerEl = document.getElementById('timer');
+  const endScreen = document.getElementById('end-screen');
+  const finalScoreEl = document.getElementById('final-score');
+  const endMsgEl = document.getElementById('end-msg');
+  const restartBtn = document.getElementById('restart-btn');
+  const leaderboardList = document.getElementById('leaderboard-list');
 
   // 状态变量
   let hands;
@@ -142,6 +198,8 @@
   let systemReady = false; // 系统准备好（模型加载完）
   let gameActive = false;  // 游戏进行中
   let score = 0;
+  let timeLeft = 30;
+  let gameTimer = null;
 
   // 切换线路（本地版不需要）
   window.switchSource = function() {
@@ -175,6 +233,33 @@
       facingMode: 'user'
     });
     await cameraObj.start();
+  }
+
+  // ==========================================
+  // 排行榜逻辑
+  // ==========================================
+  const LEADERBOARD_KEY = 'emojiNinjaLeaderboard';
+  function getLeaderboard() {
+    try { return JSON.parse(localStorage.getItem(LEADERBOARD_KEY)) || []; }
+    catch { return []; }
+  }
+  function saveLeaderboard(scores) {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(scores));
+  }
+  function updateLeaderboardUI() {
+    const scores = getLeaderboard();
+    const items = leaderboardList.querySelectorAll('li');
+    for (let i = 0; i < 3; i++) {
+      items[i].textContent = scores[i] !== undefined ? scores[i] : '---';
+    }
+  }
+  function addScore(newScore) {
+    const scores = getLeaderboard();
+    scores.push(newScore);
+    scores.sort((a, b) => b - a);
+    const top3 = scores.slice(0, 3);
+    saveLeaderboard(top3);
+    return top3.indexOf(newScore) + 1;
   }
 
   // ==========================================
@@ -367,14 +452,24 @@
   // 开始游戏
   function startGame() {
     gameActive = true;
+    score = 0;
+    timeLeft = 30;
+    scoreEl.textContent = '0';
+    timerEl.textContent = '30';
+    timerEl.className = '';
     Sound.start();
 
     // 隐藏开始UI
     startUI.style.opacity = 0;
     setTimeout(() => { startUI.style.display = 'none'; }, 300);
 
-    // 隐藏开始球
+    // 隐藏开始球和结束界面
     startOrb.visible = false;
+    endScreen.classList.remove('show');
+
+    // 清除旧水果
+    items.forEach(i => i.remove());
+    items.length = 0;
 
     // 显示游戏UI
     uiLayer.style.opacity = 1;
@@ -382,13 +477,57 @@
     // 炸出特效
     particles.push(new Splash(startOrb.position, 0x00ffcc));
     spawnFloatingText("GO!", startOrb.position, false);
+
+    // 开始计时
+    gameTimer = setInterval(() => {
+      timeLeft--;
+      timerEl.textContent = timeLeft;
+      if (timeLeft <= 10) timerEl.className = 'danger';
+      else if (timeLeft <= 20) timerEl.className = 'warning';
+      if (timeLeft <= 0) endGame();
+    }, 1000);
   }
+
+  // 结束游戏
+  function endGame() {
+    gameActive = false;
+    clearInterval(gameTimer);
+    
+    // 清除水果
+    items.forEach(i => i.remove());
+    items.length = 0;
+    
+    // 隐藏游戏UI
+    uiLayer.style.opacity = 0;
+    
+    // 计算排名
+    const rank = addScore(score);
+    finalScoreEl.textContent = score;
+    if (rank === 1) endMsgEl.textContent = '🥇 新纪录！';
+    else if (rank === 2) endMsgEl.textContent = '🥈 第二名！';
+    else if (rank === 3) endMsgEl.textContent = '🥉 第三名！';
+    else endMsgEl.textContent = '游戏结束';
+    
+    endScreen.classList.add('show');
+  }
+
+  // 返回开始界面
+  function backToStart() {
+    endScreen.classList.remove('show');
+    startUI.style.display = 'block';
+    startUI.style.opacity = 1;
+    startOrb.visible = true;
+    updateLeaderboardUI();
+  }
+
+  restartBtn.addEventListener('click', backToStart);
 
   function onResults(results) {
     if (!systemReady) {
       systemReady = true;
       loaderMask.style.display = 'none';
       startUI.style.display = 'block'; // 显示菜单文字
+      updateLeaderboardUI(); // 初始化排行榜
     }
 
     // 1. 设置画布尺寸匹配视频，确保绘制位置准确
