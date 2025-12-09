@@ -137,7 +137,7 @@
         </div>
         <div class="main-panel">
             <h1>🎯 神枪手</h1>
-            <p>食指瞄准 · 拇指射击 · 60秒挑战</p>
+            <p>食指瞄准 · 拇指射击 · 30秒挑战</p>
             <button id="start-btn" disabled>加载中...</button>
         </div>
     </div>
@@ -270,11 +270,11 @@
   function startGame() {
     isPlaying = true;
     score = 0;
-    timeLeft = 60;
+    timeLeft = 30;
     triggerState = 'released';  // 重置扳机状态
     canShoot = true;            // 重置射击冷却
     scoreEl.textContent = '0';
-    timerEl.textContent = '60';
+    timerEl.textContent = '30';
     timerEl.className = '';
     startScreen.classList.add('hidden');
     endScreen.classList.remove('show');
