@@ -50,6 +50,31 @@
         #crosshair.locked { border-color: #ff0000; background: rgba(255, 0, 0, 0.15); box-shadow: 0 0 25px #ff0000; width: 60px; height: 60px; }
         #crosshair::after { content: ''; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #fff; transform: translate(-50%, -50%); border-radius: 50%; }
 
+        /* 装填进度条 */
+        #reload-bar-container {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40px;
+            height: 5px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        #reload-bar {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #00ff00, #00ffaa);
+            box-shadow: 0 0 6px #00ff00;
+            transition: width 0.08s linear;
+        }
+        #reload-bar.empty {
+            width: 0%;
+            transition: width 0s;
+        }
+
         #input_video { display: none; }
         #output_canvas { display: none; }
 
@@ -120,7 +145,11 @@
     <div id="score-board">
         <span id="score-val">0</span>
     </div>
-    <div id="crosshair"></div>
+    <div id="crosshair">
+        <div id="reload-bar-container">
+            <div id="reload-bar"></div>
+        </div>
+    </div>
     <div id="debug-info" style="position:absolute; bottom:220px; right:20px; color:#0f0; font-family:monospace; font-size:14px; background:rgba(0,0,0,0.7); padding:5px 10px; z-index:50;"></div>
 </div>
 
@@ -181,6 +210,7 @@
   const endMsgEl = document.getElementById('end-msg');
   const restartBtn = document.getElementById('restart-btn');
   const leaderboardList = document.getElementById('leaderboard-list');
+  const reloadBar = document.getElementById('reload-bar');
 
   // 变量
   let hands;
@@ -555,12 +585,17 @@
     // 只在游戏进行中处理手势
     if (!isPlaying) return;
     
+    canvasElement.width = 320; canvasElement.height = 240;
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
       const lm = results.multiHandLandmarks[0];
       const wrist = lm[0], thumb = lm[4], indexBase = lm[5], index = lm[8];
 
       if (dist(index, wrist) > 0.18) {
         if (!isPistol) { isPistol = true; crosshair.style.display = 'block'; }
+        drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
         const aimX = (1 - index.x); const aimY = index.y;
         targetAim.set((aimX * 2) - 1, -(aimY * 2) + 1);
 
@@ -568,19 +603,27 @@
         document.getElementById('debug-info').textContent = `dTrigger: ${dTrigger.toFixed(3)} | state: ${triggerState} | threshold: ${TRIGGER_PRESS_THRESHOLD}`;
         if (triggerState === 'released') {
           laserMat.color.setHex(0x00ff00); // 绿色 - 释放状态
+          reloadBar.classList.remove('empty'); // 进度条填满
           if (dTrigger < TRIGGER_PRESS_THRESHOLD) {
             fire();
             triggerState = 'pressed';
             laserMat.color.setHex(0xffff00); // 黄色 - 击发状态
+            reloadBar.classList.add('empty'); // 进度条清空
+            drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color: '#FF0000', lineWidth: 6});
           }
         } else if (triggerState === 'pressed') {
           laserMat.color.setHex(0xffff00); // 黄色 - 保持击发状态
-          if (dTrigger > TRIGGER_RELEASE_THRESHOLD) { triggerState = 'released'; }
+          reloadBar.classList.add('empty'); // 保持进度条为空
+          if (dTrigger > TRIGGER_RELEASE_THRESHOLD) { 
+            triggerState = 'released'; 
+            reloadBar.classList.remove('empty'); // 释放后进度条填满
+          }
         }
       }
     } else {
       if (isPistol) { isPistol = false; crosshair.style.display = 'none'; }
     }
+    canvasCtx.restore();
   }
 
   startSystem();
